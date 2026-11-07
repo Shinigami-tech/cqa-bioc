@@ -6,7 +6,7 @@ import { computeTotals } from "../lib/scoring.mjs";
 
 const [file, base = "http://localhost:3000"] = process.argv.slice(2);
 const gold = JSON.parse(fs.readFileSync(file, "utf8"));
-const per = {}; let n = 0, totalAbs = 0, exactDialogs = 0, grossHit = 0, grossN = 0;
+const per = {}; let fullN = 0, n = 0, totalAbs = 0, exactDialogs = 0, grossHit = 0, grossN = 0;
 for (const g of gold) {
   const { evaluation: ev } = await (await fetch(`${base}/api/conversations/${encodeURIComponent(g.conversation_id)}`)).json();
   if (!ev) { console.log(`- ${g.conversation_id}: not evaluated`); continue; }
@@ -23,10 +23,10 @@ for (const g of gold) {
     (per[c.id] ||= { name: c.text, ok: 0, n: 0, misses: [] }); per[c.id].n++; if (ok) per[c.id].ok++; else { allOk = false; per[c.id].misses.push(`${g.conversation_id}: model=${got} gold=${want}`); }
     if (c.critical_on === "yes") { grossN++; if (ok) grossHit++; }
   }
-  const gt = computeTotals(cl, goldResults).total, mt = computeTotals(cl, ev.results).total;
-  totalAbs += Math.abs((gt ?? 0) - (mt ?? 0)); n++; if (allOk) exactDialogs++;
+  n++; if (allOk) exactDialogs++;
+  if (cl.criteria.every((c) => g.results[c.id] !== undefined)) { const gt = computeTotals(cl, goldResults).total, mt = computeTotals(cl, ev.results).total; totalAbs += Math.abs((gt ?? 0) - (mt ?? 0)); fullN = (fullN || 0) + 1; }
 }
-console.log(`\nDialogs: ${n} · fully matching: ${exactDialogs} · mean |total − gold| = ${(totalAbs / n).toFixed(2)} · gross-error flag accuracy ${grossHit}/${grossN}\n`);
+console.log(`\nDialogs: ${n} · fully matching: ${exactDialogs} · mean |total − gold| = ${fullN ? (totalAbs / fullN).toFixed(2) : "—"} (on ${fullN} fully labelled) · gross-error flag accuracy ${grossHit}/${grossN}\n`);
 for (const [id, p] of Object.entries(per)) {
   console.log(`${String(Math.round((p.ok / p.n) * 100)).padStart(3)}%  ${id}  ${p.name}`);
   p.misses.slice(0, 5).forEach((m) => console.log(`        ✗ ${m}`));
