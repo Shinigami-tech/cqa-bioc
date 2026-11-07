@@ -10,6 +10,9 @@ export async function render(root, [id]) {
   if (!cur) { root.innerHTML = '<div class="page"><div class="card empty"><b>Чек-листов нет</b></div></div>'; return; }
   if (draftOf !== cur.id || !draft) { draft = structuredClone(cur.active_checklist); draftOf = cur.id; dirty = false; }
   const wSum = draft.criteria.filter((c) => c.critical_on !== "yes").reduce((s, c) => s + Number(c.weight || 0), 0);
+  // One color per scored criterion; the bar, the legend and the criterion number share it.
+  const scored = draft.criteria.map((c, k) => ({ c, n: String(k + 1).padStart(2, "0") })).filter(({ c }) => c.critical_on !== "yes" && Number(c.weight) > 0).map((x, i) => ({ ...x, color: COLORS[i % COLORS.length] }));
+  const colorOf = (c) => scored.find((x) => x.c === c)?.color;
   const nextV = Math.max(...cur.versions.map((v) => v.version)) + 1;
 
   root.innerHTML = `
@@ -34,11 +37,12 @@ export async function render(root, [id]) {
           </div>
           <div>
             <div class="small muted" style="display:flex;justify-content:space-between;margin-bottom:6px"><span>Веса критериев</span><b style="color:${wSum === 100 ? "var(--good)" : "var(--mid)"}">сумма ${fmt(wSum)}${wSum === 100 ? " ✓" : " — при N/A всё равно нормируется к 100"}</b></div>
-            <div class="weightbar">${draft.criteria.filter((c) => c.critical_on !== "yes").map((c, i) => `<i title="${esc(c.text)}: ${c.weight}" style="width:${wSum ? (c.weight / wSum) * 100 : 0}%;background:${COLORS[i % COLORS.length]}"></i>`).join("")}</div>
+            <div class="weightbar">${scored.map(({ c, color }) => `<i title="${esc(c.text)}: ${c.weight}" style="width:${wSum ? (c.weight / wSum) * 100 : 0}%;background:${color}"></i>`).join("")}</div>
+            <div class="wlegend">${scored.map(({ c, n, color }) => `<span title="${esc(c.text)}"><i style="background:${color}"></i>${n} ${esc(c.text)} <b>${fmt(c.weight)}</b></span>`).join("")}${draft.criteria.some((c) => c.critical_on === "yes") ? `<span class="muted"><i style="background:var(--bad)"></i>Грубые ошибки — без веса, отдельный флаг</span>` : ""}</div>
           </div>
         </div>
 
-        <div class="stack" id="crits">${draft.criteria.map((c, i) => critEditor(c, i)).join("")}</div>
+        <div class="stack" id="crits">${draft.criteria.map((c, i) => critEditor(c, i, colorOf(c))).join("")}</div>
 
         <div class="card card-b stack">
           <div class="toolbar" style="margin:0">
@@ -105,7 +109,8 @@ export async function render(root, [id]) {
   };
   root.querySelectorAll("[data-ch]").forEach((cb) => (cb.onchange = async () => {
     const channels = [...root.querySelectorAll("[data-ch]:checked")].map((x) => x.dataset.ch);
-    try { await api(`/api/checklists/${encodeURIComponent(cur.id)}/activate`, { channels }); toast("Привязка к каналам обновлена"); rer(); } catch (e) { toast(e.message, true); }
+    try { await api(`/api/checklists/${encodeURIComponent(cur.id)}/activate`, { channels }); const orphan = CHANNELS.filter(([v]) => !channels.includes(v) && !sets.some((x) => x.id !== cur.id && x.channels.includes(v)));
+      toast(orphan.length ? `Внимание: у канала ${orphan.map((o) => o[1]).join(", ")} теперь нет чек-листа — привяжите его к другому набору` : "Привязка к каналам обновлена", !!orphan.length); rer(); } catch (e) { toast(e.message, true); }
   }));
   root.querySelectorAll("[data-activate]").forEach((b) => (b.onclick = async () => {
     try { await api(`/api/checklists/${encodeURIComponent(cur.id)}/activate`, { version: Number(b.dataset.activate) }); draft = null; toast(`Активна v${b.dataset.activate}`); rer(); } catch (e) { toast(e.message, true); }
@@ -116,10 +121,10 @@ export async function render(root, [id]) {
   };
 }
 
-function critEditor(c, i) {
+function critEditor(c, i, color) {
   const isFlag = c.critical_on === "yes";
   return `<div class="crit-edit" data-i="${i}">
-    <div class="head"><span class="n">${String(i + 1).padStart(2, "0")}</span>
+    <div class="head"><span class="n"${color ? ` style="color:${color};font-weight:700"` : ""}>${color ? `<i class="cdot" style="background:${color}"></i>` : ""}${String(i + 1).padStart(2, "0")}</span>
       <input class="input" data-k="text" value="${esc(c.text)}" style="flex:1;font-weight:600" />
       <button class="btn ghost" data-act="up" title="Выше">↑</button><button class="btn ghost" data-act="down" title="Ниже">↓</button><button class="btn ghost danger" data-act="del" title="Удалить">✕</button></div>
     <label class="full">Когда ставить «Да» / что оценивать<textarea class="input" data-k="description" rows="2">${esc(c.description || "")}</textarea></label>
