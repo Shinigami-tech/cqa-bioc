@@ -36,7 +36,7 @@ for (const c of crit) {
   }
 }
 
-console.log("\n== RU / KZ / EN consistency (true translations: identical timestamps + speakers) ==");
+console.log("\n== RU / KZ / EN consistency (same timestamps + speakers; NOT always translations — check text) ==");
 const sc = {};
 for (const x of cards) { const k = x.conversation.transcript.map((t) => `${t.timestamp}|${t.speaker}`).join(";"); (sc[k] ||= []).push(x); }
 for (const k of Object.keys(sc)) { const langs = new Set(sc[k].map((x) => x.conversation.language)); if (langs.size < 2) delete sc[k]; else { sc[sc[k].map((x) => x.conversation.conversation_id).join("=")] = sc[k]; delete sc[k]; } }
