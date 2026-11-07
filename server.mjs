@@ -201,8 +201,23 @@ const routes = {
       k.sum += c.critical_on === "yes" ? 1 - norm : norm; if ((c.critical_on === "yes" ? 1 - norm : norm) < 1) k.fails++;
     }
     const by = (key) => Object.entries(vs.reduce((m, v) => { const c = convs.find((x) => x.conversation_id === v.conversation_id); const g = c[key]; (m[g] ||= []).push(v.totals.total); return m; }, {})).map(([k, arr]) => ({ key: k, n: arr.length, avg: avg(arr.filter((x) => x !== null)) }));
+    // Language consistency: DEV has the same scenario in RU / KZ / EN (p1-ru-013 ≈ p1-kz-013 ≈ p1-en-013).
+    // A model that understands all three languages must give the same verdicts across the set.
+    const groupsByScenario = {};
+    for (const v of vs) { const k = v.conversation_id.replace(/-(ru|kz|en)-/i, "-*-"); if (k !== v.conversation_id) (groupsByScenario[k] ||= []).push(v); }
+    let agree = 0, compared = 0; const mismatches = [];
+    for (const [k, arr] of Object.entries(groupsByScenario)) {
+      if (arr.length < 2) continue;
+      const diff = [];
+      for (const c of arr[0].checklist.criteria) {
+        const keys = arr.map((v) => { const r = v.final_results.find((x) => x.criterion_id === c.id); return !r ? "?" : r.na ? "N/A" : c.type === "scale" ? String(r.score) : r.answer; });
+        compared++; if (new Set(keys).size === 1) agree++; else diff.push({ criterion: c.text, values: Object.fromEntries(arr.map((v, i) => [v.conversation_id, keys[i]])) });
+      }
+      if (diff.length) mismatches.push({ scenario: k, ids: arr.map((v) => v.conversation_id), diff });
+    }
     const appeals = load("appeals", []);
     return {
+      language_consistency: compared ? { rate: agree / compared, scenarios: Object.values(groupsByScenario).filter((a) => a.length > 1).length, mismatches } : null,
       conversations: convs.length, evaluated: vs.length, avg_total: avg(totals),
       distribution: [0, 20, 40, 60, 80].map((lo) => ({ from: lo, to: lo + 20, n: totals.filter((t) => t >= lo && (lo === 80 ? t <= 100 : t < lo + 20)).length })),
       critical: vs.filter((v) => v.totals.critical_errors.length).map((v) => ({ conversation_id: v.conversation_id, total: v.totals.total, criteria: v.totals.critical_errors })),

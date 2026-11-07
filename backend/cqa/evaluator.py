@@ -57,23 +57,46 @@ def build_prompt(conv: dict, checklist: dict, facts: dict | None = None) -> dict
     return {"system": system, "user": user}
 
 
-def _call_once(prompt: dict) -> dict:
-    body = json.dumps({
+_JSON_MODE = {"on": os.getenv("LLM_JSON_MODE", "1") != "0"}
+
+
+def extract_json(text: str) -> str:
+    """Tolerates ```json fences and text around the object (providers without JSON mode)."""
+    t = re.sub(r"```(json)?", "", text, flags=re.I).strip()
+    a, b = t.find("{"), t.rfind("}")
+    return t[a:b + 1] if a >= 0 and b > a else t
+
+
+def _post(prompt: dict) -> dict:
+    payload = {
         "model": os.getenv("LLM_MODEL", "gpt-4.1-mini"),
         "temperature": float(os.getenv("LLM_TEMPERATURE", "0")),
-        "response_format": {"type": "json_object"},
         "messages": [{"role": "system", "content": prompt["system"]}, {"role": "user", "content": prompt["user"]}],
-    }).encode()
-    req = urllib.request.Request(f"{os.getenv('LLM_BASE_URL', 'https://api.openai.com/v1').rstrip('/')}/chat/completions", data=body,
+    }
+    if _JSON_MODE["on"]:
+        payload["response_format"] = {"type": "json_object"}
+    req = urllib.request.Request(f"{os.getenv('LLM_BASE_URL', 'https://api.openai.com/v1').rstrip('/')}/chat/completions", data=json.dumps(payload).encode(),
                                  headers={"content-type": "application/json", "authorization": f"Bearer {os.getenv('LLM_API_KEY')}"})
+    with urllib.request.urlopen(req, timeout=120) as r:
+        return json.loads(r.read())
+
+
+def _call_once(prompt: dict) -> dict:
     try:
-        with urllib.request.urlopen(req, timeout=120) as r:
-            j = json.loads(r.read())
+        j = _post(prompt)
     except urllib.error.HTTPError as e:
-        raise RuntimeError(f"LLM {e.code}: {e.read()[:300]!r}") from e
+        body = e.read()[:300].decode("utf-8", "replace")
+        if e.code == 400 and _JSON_MODE["on"] and re.search("response_format|json", body, re.I):
+            _JSON_MODE["on"] = False  # provider without JSON mode: rely on the prompt
+            try:
+                j = _post(prompt)
+            except urllib.error.HTTPError as e2:
+                raise RuntimeError(f"LLM {e2.code}: {e2.read()[:300]!r}") from e2
+        else:
+            raise RuntimeError(f"LLM {e.code}: {body}") from e
     text = (j.get("choices") or [{}])[0].get("message", {}).get("content") or ""
     try:
-        parsed = json.loads(re.sub(r"^```(json)?\s*|\s*```$", "", text.strip()))
+        parsed = json.loads(extract_json(text))
     except json.JSONDecodeError as e:
         raise RuntimeError("LLM returned invalid JSON") from e
     return {"json": parsed, "text": text, "usage": j.get("usage") or {}}

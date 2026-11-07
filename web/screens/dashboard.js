@@ -46,9 +46,14 @@ export async function render(root) {
         </div></div>
     </div>
 
-    <div class="grid-3">
+    <div class="grid-3" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">
       <div class="card"><div class="card-h">⚠ Грубые ошибки</div><div class="card-b list-links">${s.critical.slice(0, 8).map((c) => `<a href="#/c/${encodeURIComponent(c.conversation_id)}"><span class="mono">${esc(c.conversation_id)}</span>${scoreHtml(c.total)}</a>`).join("") || '<span class="muted">Не найдено</span>'}${s.critical.length > 8 ? `<a href="#/list">ещё ${s.critical.length - 8} →</a>` : ""}</div></div>
       <div class="card"><div class="card-h">🔎 Нужна проверка человеком</div><div class="card-b list-links">${s.low_confidence.slice(0, 8).map((c) => `<a href="#/c/${encodeURIComponent(c.conversation_id)}"><span class="mono">${esc(c.conversation_id)}</span><span class="pill mid">${c.criteria.length} крит.</span></a>`).join("") || '<span class="muted">Модель уверена во всех оценках</span>'}${s.low_confidence.length > 8 ? `<a href="#/list">ещё ${s.low_confidence.length - 8} →</a>` : ""}</div></div>
+      ${s.language_consistency ? `<div class="card"><div class="card-h">🌐 Согласованность языков</div><div class="card-b">
+        <div class="small ink2">Одни и те же сценарии на RU / KZ / EN должны получить одинаковые оценки — так проверяем, что модель одинаково понимает все три языка.</div>
+        <div style="display:flex;align-items:baseline;gap:8px;margin:10px 0"><b style="font-size:26px">${Math.round(s.language_consistency.rate * 100)}%</b><span class="muted small">совпадений по ${s.language_consistency.scenarios} сценариям</span></div>
+        <div class="list-links">${s.language_consistency.mismatches.slice(0, 5).map((m) => `<a href="#/c/${encodeURIComponent(m.ids[0])}"><span class="mono">${esc(m.scenario)}</span><span class="pill mid">${m.diff.length} расх.</span></a>`).join("") || '<span class="muted small">Расхождений нет</span>'}</div>
+      </div></div>` : ""}
       <div class="card"><div class="card-h">Как это работает</div><div class="card-b small ink2">
         1. Код извлекает факты из диалога: язык, задержки, системные события.<br>
         2. Модель оценивает каждый критерий и ссылается на реплики.<br>
