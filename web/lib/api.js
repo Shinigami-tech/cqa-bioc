@@ -18,6 +18,7 @@ export function verdict(c, r) {
   if (!r) return "—";
   if (r.na) return "N/A";
   if (c.type === "scale") return `${r.score} / ${c.scale.max}`;
+  if (c.critical_on === "yes") return r.answer === "yes" ? "Да — нарушение" : "Нет";
   return r.answer === "yes" ? "Да" : "Нет";
 }
 

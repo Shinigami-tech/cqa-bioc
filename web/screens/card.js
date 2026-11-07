@@ -67,11 +67,11 @@ function resultHtml(ev, conv) {
     return `
     <div class="crit ${r.na ? "na" : ""} ${t.critical_errors.includes(c.id) ? "critical" : ""}">
       <div class="crit-head">
-        <b>${esc(c.text)}</b>
+        <b title="${esc(c.description || "")}">${esc(c.text)}</b>
         <span class="verdict">${verdict(c, r)}</span>
       </div>
       <div class="meta">
-        вес ${c.weight}${row?.applicable ? ` → ${(row.effective_weight * 100).toFixed(1)}% · ${row.points.toFixed(1)} балл.` : " · не учитывается"}
+        ${c.critical_on === "yes" ? "без баллов, отмечается отдельно" : `вес ${c.weight}`}${row?.applicable ? ` → ${(row.effective_weight * 100).toFixed(1)}% · ${row.points.toFixed(1)} балл.` : " · не учитывается"}
         ${c.critical ? ' · <span class="tag bad">критичный</span>' : ""}
         ${r.overridden ? ` · <span class="tag warn">изменено проверяющим (было: ${verdict(c, orig)})</span>` : ""}
       </div>

@@ -49,7 +49,9 @@ async function card(a, root) {
 }
 
 function decisionForm(c) {
-  const input = c.type === "scale"
+  const input = c.type === "scale" && c.scale.steps?.length
+    ? `<select name="score">${c.scale.steps.map((x) => `<option value="${x.value}">${x.value} — ${esc(x.label)}</option>`).join("")}</select>`
+    : c.type === "scale"
     ? `<input name="score" type="number" min="${c.scale.min}" max="${c.scale.max}" value="${c.scale.max}" />`
     : `<select name="answer"><option value="yes">Да</option><option value="no">Нет</option></select>`;
   return `<form class="decide">

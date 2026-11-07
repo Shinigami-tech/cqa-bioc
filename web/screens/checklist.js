@@ -22,15 +22,15 @@ export async function render(root) {
       <span class="muted">Сумма весов: <b>${totalW}</b></span>
     </div>
     <table class="grid edit">
-      <thead><tr><th>ID</th><th>Секция</th><th>Формулировка</th><th>Вес</th><th>Тип</th><th>Шкала</th><th>N/A</th><th>Правило N/A</th><th>Грубая</th><th></th></tr></thead>
+      <thead><tr><th>ID</th><th>Секция</th><th>Критерий и правило «Да»</th><th>Вес</th><th>Тип</th><th>Шкала</th><th>N/A</th><th>Правило N/A</th><th title="Да = нарушение, без баллов">Грубая ошибка</th><th></th></tr></thead>
       <tbody>${draft.criteria.map((c, i) => `
         <tr data-i="${i}">
           <td><input data-k="id" value="${esc(c.id)}" class="mono" style="width:110px" /></td>
           <td><input data-k="section" value="${esc(c.section || "")}" style="width:110px" /></td>
-          <td><textarea data-k="text" rows="2">${esc(c.text)}</textarea></td>
+          <td><input data-k="text" value="${esc(c.text)}" style="width:100%" /><textarea data-k="description" rows="2" placeholder="Когда ставить «Да»">${esc(c.description || "")}</textarea></td>
           <td><input data-k="weight" type="number" min="0" value="${c.weight}" style="width:60px" /></td>
           <td><select data-k="type"><option value="binary" ${c.type === "binary" ? "selected" : ""}>Да/Нет</option><option value="scale" ${c.type === "scale" ? "selected" : ""}>Шкала</option></select></td>
-          <td>${c.type === "scale" ? `<input data-k="min" type="number" value="${c.scale?.min ?? 0}" style="width:45px" />–<input data-k="max" type="number" value="${c.scale?.max ?? 2}" style="width:45px" />` : '<span class="muted">—</span>'}</td>
+          <td>${c.type === "scale" ? `<input data-k="min" type="number" value="${c.scale?.min ?? 0}" style="width:58px" />–<input data-k="max" type="number" value="${c.scale?.max ?? 2}" style="width:58px" /><textarea data-k="steps" rows="3" title="Ступени: значение | описание, по одной в строке" placeholder="20 | Всё закрыто">${esc((c.scale?.steps || []).map((x) => `${x.value} | ${x.label}`).join("\n"))}</textarea>` : '<span class="muted">—</span>'}</td>
           <td><input data-k="na_allowed" type="checkbox" ${c.na_allowed ? "checked" : ""} /></td>
           <td><textarea data-k="na_rule" rows="2" ${c.na_allowed ? "" : "disabled"}>${esc(c.na_rule || "")}</textarea></td>
           <td><input data-k="critical" type="checkbox" ${c.critical ? "checked" : ""} /></td>
@@ -60,6 +60,8 @@ export async function render(root) {
     const v = e.target.type === "checkbox" ? e.target.checked : e.target.value;
     if (k === "weight") c.weight = Number(v);
     else if (k === "min" || k === "max") c.scale = { ...(c.scale || {}), [k]: Number(v) };
+    else if (k === "steps") c.scale = { ...(c.scale || {}), steps: v.split("\n").map((l) => l.split("|")).filter((p) => p[0].trim() !== "").map(([val, ...rest]) => ({ value: Number(val), label: rest.join("|").trim() })) };
+    else if (k === "critical") { c.critical = v; c.critical_on = v ? "yes" : undefined; }
     else if (k === "type") { c.type = v; if (v === "scale" && !c.scale) c.scale = { min: 0, max: 2 }; return rerender(); }
     else if (k === "na_allowed") { c.na_allowed = v; return rerender(); }
     else c[k] = v;

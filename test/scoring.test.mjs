@@ -57,3 +57,39 @@ test("sanitize drops bad evidence and illegal N/A", () => {
   assert.deepEqual(results[0].evidence_ids, [1]);
   assert.equal(problems.length, 2);
 });
+
+// ---- the organizers' checklist (checklists/default.json) ----
+import fs from "node:fs";
+import { snap } from "../lib/evaluator.mjs";
+const fb = JSON.parse(fs.readFileSync(new URL("../checklists/default.json", import.meta.url)));
+const all = (over = {}) => fb.criteria.map((c) => ({ criterion_id: c.id, ...(c.type === "scale" ? { score: c.scale.max } : { answer: c.critical_on === "yes" ? "no" : "yes" }), ...(over[c.id] || {}) }));
+
+test("Freedom checklist: perfect chat = 100, weights sum to 100", () => {
+  assert.equal(fb.criteria.reduce((s, c) => s + c.weight, 0), 100);
+  assert.equal(computeTotals(fb, all()).total, 100);
+});
+
+test("Freedom checklist: N/A identification + partial scales, rounded to 2 decimals", () => {
+  // applicable weights 80; points: 10 + 15 + 20*15/20 + 15 + 15*7/10 + 5 = 70.5 → 70.5/80*100 = 88.125
+  const t = computeTotals(fb, all({ c03_identification: { na: true }, c04_consultation: { score: 15 }, c06_management: { score: 7 } }));
+  assert.equal(t.total, 88.13);
+});
+
+test("Freedom checklist: gross error is flagged, not scored", () => {
+  const t = computeTotals(fb, all({ c08_gross: { answer: "yes" } }));
+  assert.equal(t.total, 100);
+  assert.deepEqual(t.critical_errors, ["c08_gross"]);
+});
+
+test("all weighted criteria N/A → total is not calculated (null)", () => {
+  const cl2 = { max_score: 100, criteria: [{ id: "a", text: "t", weight: 10, type: "binary", na_allowed: true }, { id: "g", text: "t", weight: 0, type: "binary", critical: true, critical_on: "yes" }] };
+  const t = computeTotals(cl2, [{ criterion_id: "a", na: true }, { criterion_id: "g", answer: "no" }]);
+  assert.equal(t.total, null);
+});
+
+test("scale scores snap to allowed steps", () => {
+  const c = fb.criteria.find((x) => x.id === "c06_management");
+  assert.equal(snap(c, 8), 7);
+  assert.equal(snap(c, 6), 7);
+  assert.equal(snap(c, 1), 0);
+});
