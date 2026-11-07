@@ -1,9 +1,12 @@
-# Deploying the UI to Vercel
+# Vercel: switching between the built-in API and the FastAPI backend
 
-The UI (`web/`) is static. `/api/*` is proxied to the FastAPI backend, so the browser never hits CORS.
+The site (`web/`) and the API function (`api/index.mjs`) are deployed from the repo root (`vercel.json`).
 
-1. Replace `BACKEND_HOST` in `vercel.json` with the backend's public host (Render, Railway or a VM; or FastAPI as a Vercel Python function).
-2. Copy `web/*` and this `vercel.json` into one folder, or set Root Directory = `web` and keep `vercel.json` there.
-3. Import the repo in Vercel (Framework: Other, no build command).
+- **No `BACKEND_URL`:** the built-in reference API answers (backup "stub", data in Supabase).
+- **`BACKEND_URL=https://backend-host`:** every `/api/*` request is proxied to the FastAPI backend.
 
-The backend needs persistent storage (Postgres or SQLite on a disk), because Vercel functions have no persistent filesystem.
+Switch:
+1. `node tools/check-backend.mjs https://backend-host` must print `0 failed`.
+2. Vercel → cqa-bioc → Settings → Environment Variables → add `BACKEND_URL` → Redeploy.
+
+Roll back: delete `BACKEND_URL` → Redeploy.
