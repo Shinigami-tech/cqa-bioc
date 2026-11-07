@@ -1,5 +1,7 @@
 # Reference labels (team ground truth)
 
+**Easiest way:** open a dialog card in the UI, go to the **«Эталон»** tab, pick an answer for each criterion and click «Сохранить эталон и к следующему →». Accuracy appears on «Обзор» right away. The JSON file below is an alternative for the command-line script.
+
 Label 15–20 DEV dialogs by hand with the official checklist (mix RU / KZ / EN, include a call), then:
 
 ```bash

@@ -187,6 +187,16 @@ const routes = {
     return { appeal: a, evaluation: view(evals().find((e) => e.id === a.evaluation_id)) };
   },
 
+  // Team reference labels ("эталон") — used to measure accuracy before the control round.
+  "GET /api/labels": async () => load("labels", {}),
+  "POST /api/labels": async (_, __, body) => {
+    if (!body.conversation_id || typeof body.results !== "object") throw httpError(400, "conversation_id and results are required");
+    const all = load("labels", {});
+    if (body.delete) delete all[body.conversation_id];
+    else all[body.conversation_id] = { results: body.results, author: body.author || "", updated_at: new Date().toISOString() };
+    save("labels", all); return { ok: true, count: Object.keys(all).length };
+  },
+
   // Aggregates for the dashboard.
   "GET /api/stats": async (_, q) => {
     const all = evals(); const convs = Object.values(load("conversations", {})).filter((c) => !q.group || c.group_id === q.group);
@@ -215,8 +225,25 @@ const routes = {
       }
       if (diff.length) mismatches.push({ scenario: k, ids: arr.map((v) => v.conversation_id), diff });
     }
+    // Accuracy vs team labels: model answers (before appeals) against the reference.
+    const labels = load("labels", {});
+    const acc = { dialogs: 0, criteria: {}, abs: 0, exact: 0, agree: 0, n: 0 };
+    for (const v of vs) {
+      const g = labels[v.conversation_id]; if (!g) continue;
+      acc.dialogs++; let all = true;
+      const goldResults = v.checklist.criteria.map((c) => toResult(c, g.results[c.id]));
+      for (const c of v.checklist.criteria) {
+        const want = g.results[c.id]; if (want === undefined || want === null || want === "") continue;
+        const r = v.results.find((x) => x.criterion_id === c.id); const got = keyOf(c, r);
+        const k = (acc.criteria[c.id] ||= { id: c.id, name: c.text, ok: 0, n: 0, misses: [] });
+        k.n++; acc.n++; if (got === String(want)) { k.ok++; acc.agree++; } else { all = false; k.misses.push({ conversation_id: v.conversation_id, model: got, gold: String(want) }); }
+      }
+      const gt = computeTotals(v.checklist, goldResults).total, mt = v.original_totals.total;
+      acc.abs += Math.abs((gt ?? 0) - (mt ?? 0)); if (all) acc.exact++;
+    }
     const appeals = load("appeals", []);
     return {
+      accuracy: acc.dialogs ? { dialogs: acc.dialogs, criterion_agreement: acc.agree / acc.n, exact_dialogs: acc.exact, mean_abs_total: Number((acc.abs / acc.dialogs).toFixed(2)), criteria: Object.values(acc.criteria).map((k) => ({ ...k, rate: k.ok / k.n })) } : null,
       language_consistency: compared ? { rate: agree / compared, scenarios: Object.values(groupsByScenario).filter((a) => a.length > 1).length, mismatches } : null,
       conversations: convs.length, evaluated: vs.length, avg_total: avg(totals),
       distribution: [0, 20, 40, 60, 80].map((lo) => ({ from: lo, to: lo + 20, n: totals.filter((t) => t >= lo && (lo === 80 ? t <= 100 : t < lo + 20)).length })),
@@ -259,6 +286,8 @@ const compiled = Object.entries(routes).map(([k, fn]) => {
   return { method, re, keys, fn };
 });
 function httpError(status, message) { return Object.assign(new Error(message), { status }); }
+const keyOf = (c, r) => (!r ? "?" : r.na ? "na" : c.type === "scale" ? String(r.score) : r.answer);
+const toResult = (c, v) => (v === "na" ? { criterion_id: c.id, na: true } : c.type === "scale" ? { criterion_id: c.id, score: Number(v) } : { criterion_id: c.id, answer: v });
 const avg = (a) => (a.length ? Number((a.reduce((s, x) => s + x, 0) / a.length).toFixed(2)) : null);
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon" };
 

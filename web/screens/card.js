@@ -8,7 +8,8 @@ let keyHandler;
 export function unmount() { removeEventListener("keydown", keyHandler); }
 
 export async function render(root, [cid]) {
-  const { conversation: conv, evaluation: ev, history } = await api(`/api/conversations/${encodeURIComponent(cid)}`);
+  const [{ conversation: conv, evaluation: ev, history }, labels] = await Promise.all([api(`/api/conversations/${encodeURIComponent(cid)}`), api("/api/labels")]);
+  const gold = labels[cid]?.results || null;
   const isCall = conv.channel === "voice call";
   const base = ev?.facts?.audio_offset_base_idx ?? 0;
   const order = JSON.parse(sessionStorage.getItem("cqa-order") || "[]");
@@ -40,7 +41,7 @@ export async function render(root, [cid]) {
           </div>`).join("")}
         </div>
       </div>
-      <div class="result" id="res">${ev ? resultHtml(ev, conv, history) : `<div class="card empty"><b>Диалог ещё не оценён</b>Нажмите «Оценить» — модель проверит его по чек-листу «${isCall ? "звонки" : "чаты"}».</div>`}</div>
+      <div class="result" id="res">${ev ? resultHtml(ev, conv, history, gold) : `<div class="card empty"><b>Диалог ещё не оценён</b>Нажмите «Оценить» — модель проверит его по чек-листу «${isCall ? "звонки" : "чаты"}».</div>`}</div>
     </div>
   </div>`;
 
@@ -72,7 +73,14 @@ export async function render(root, [cid]) {
 
   const res = q("#res");
   res.onclick = async (e) => {
-    const t = e.target.closest("[data-tab]"); if (t) { tab = t.dataset.tab; res.innerHTML = resultHtml(ev, conv, history); return; }
+    const t = e.target.closest("[data-tab]"); if (t) { tab = t.dataset.tab; res.innerHTML = resultHtml(ev, conv, history, gold); return; }
+    if (e.target.id === "gold-fill") { ev.checklist.criteria.forEach((c) => { const r = ev.results.find((x) => x.criterion_id === c.id); const sel = res.querySelector(`[data-gold="${c.id}"]`); if (sel && r) sel.value = r.na ? "na" : c.type === "scale" ? String(r.score) : r.answer; }); return; }
+    if (e.target.id === "gold-save") {
+      const results = {}; res.querySelectorAll("[data-gold]").forEach((sel) => { if (sel.value !== "") results[sel.dataset.gold] = sel.value; });
+      if (Object.keys(results).length < ev.checklist.criteria.length) { toast("Заполните все критерии", true); return; }
+      try { await api("/api/labels", { conversation_id: cid, results, author: res.querySelector("#gold-author").value }); toast("Эталон сохранён"); if (next) location.hash = `#/c/${encodeURIComponent(next)}`; else render(root, [cid]); } catch (err) { toast(err.message, true); }
+      return;
+    }
     const evi = e.target.closest("[data-ev]"); if (evi) { const ids = evi.dataset.ev.split(",").map(Number); focusLines(root, ids, "hit"); if (isCall && evi.dataset.play !== undefined) seek(ids[0]); return; }
     const sp = e.target.closest("[data-span]"); if (sp) { const [a, b = a] = sp.dataset.span.split(/[-–]/).map(Number); if (Number.isFinite(a)) focusLines(root, range(a, Math.min(b, conv.transcript.length - 1)), "span"); return; }
     const ap = e.target.closest("[data-appeal]"); if (ap) return openAppeal(ap.closest(".crit"), ap.dataset.appeal, ev, root, cid);
@@ -86,7 +94,7 @@ export async function render(root, [cid]) {
   addEventListener("keydown", keyHandler);
 }
 
-function resultHtml(ev, conv, history) {
+function resultHtml(ev, conv, history, gold) {
   const t = ev.totals, o = ev.original_totals;
   const changed = t.total !== o.total;
   const secs = Object.entries(t.sections).filter(([n]) => !/груб/i.test(n));
@@ -104,12 +112,12 @@ function resultHtml(ev, conv, history) {
   ${low.length ? `<div class="banner mid"><b>🔎</b><div>Модель не уверена в ${low.length} ${low.length === 1 ? "критерии" : "критериях"} — рекомендуем проверить вручную.</div></div>` : ""}
   ${t.total === null ? `<div class="banner info"><b>i</b><div>Все критерии с весом получили N/A — по правилам чек-листа итог не рассчитывается.</div></div>` : ""}
   <div class="card">
-    <div class="tabs">${[["criteria", "Критерии"], ["trace", "Как решила модель"], ["history", `История${ev.appeals.length ? ` (${ev.appeals.length})` : ""}`]].map(([k, l]) => `<button data-tab="${k}" class="${tab === k ? "on" : ""}">${l}</button>`).join("")}</div>
-    ${tab === "criteria" ? criteriaHtml(ev, conv) : tab === "trace" ? traceHtml(ev) : historyHtml(ev, history)}
+    <div class="tabs">${[["criteria", "Критерии"], ["trace", "Как решила модель"], ["history", `История${ev.appeals.length ? ` (${ev.appeals.length})` : ""}`], ["gold", gold ? "Эталон ✓" : "Эталон"]].map(([k, l]) => `<button data-tab="${k}" class="${tab === k ? "on" : ""}">${l}</button>`).join("")}</div>
+    ${tab === "criteria" ? criteriaHtml(ev, conv, gold) : tab === "trace" ? traceHtml(ev) : tab === "gold" ? goldHtml(ev, gold) : historyHtml(ev, history)}
   </div>`;
 }
 
-function criteriaHtml(ev, conv) {
+function criteriaHtml(ev, conv, gold) {
   const isCall = conv.channel === "voice call";
   return ev.checklist.criteria.map((c) => {
     const r = ev.final_results.find((x) => x.criterion_id === c.id) || {};
@@ -130,6 +138,7 @@ function criteriaHtml(ev, conv) {
           <span class="muted">${c.critical_on === "yes" ? "без баллов" : row?.applicable ? `вес ${c.weight} → ${fmt(row.effective_weight * 100, 1)}% · ${fmt(row.points, 2)} балл.` : `вес ${c.weight} · не учитывается`}</span>
           ${confHtml(r.confidence)}${isLow ? '<span class="pill mid">проверить</span>' : ""}
           ${r.overridden ? `<span class="pill info">изменено проверяющим, было: ${verdict(c, orig).label}</span>` : ""}
+          ${gold && gold[c.id] !== undefined ? (goldKey(c, orig) === String(gold[c.id]) ? '<span class="pill good">= эталон</span>' : `<span class="pill bad">эталон: ${goldLabel(c, gold[c.id])}</span>`) : ""}
           <span class="spacer"></span>
           ${open ? '<span class="pill mid">апелляция на рассмотрении</span>' : `<a href="javascript:void 0" data-appeal="${c.id}">Оспорить</a>`}
         </div>
@@ -137,6 +146,25 @@ function criteriaHtml(ev, conv) {
     </div>`;
   }).join("");
 }
+
+// Team reference labeling ("эталон") — measured on the dashboard as accuracy.
+function goldHtml(ev, gold) {
+  return `<div class="card-b stack">
+    <div class="small ink2">Разметьте диалог вручную по чек-листу, не глядя на ответ модели. Эталоны сравниваются с моделью на «Обзоре» — так мы измеряем точность до контрольного этапа.</div>
+    ${ev.checklist.criteria.map((c) => {
+      const opts = c.type === "scale" ? (c.scale.steps || []).map((s) => [String(s.value), `${s.value} — ${s.label}`]) : c.critical_on === "yes" ? [["no", "Нет нарушений"], ["yes", "Нарушение"]] : [["yes", "Да"], ["no", "Нет"]];
+      if (c.na_allowed) opts.push(["na", "N/A"]);
+      const cur = gold?.[c.id] ?? "";
+      return `<label class="small" style="display:grid;grid-template-columns:1fr 220px;gap:10px;align-items:center"><span><b>${esc(c.text)}</b><br><span class="muted">${esc(c.description || "")}</span></span>
+        <select class="input" data-gold="${c.id}"><option value="">—</option>${opts.map(([v, l]) => `<option value="${v}" ${String(cur) === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>`;
+    }).join("")}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input class="input" id="gold-author" placeholder="Кто размечал" style="width:160px" />
+      <button class="btn ghost" id="gold-fill" title="Подставить ответы модели как черновик">Подставить ответы модели</button><span class="spacer"></span>
+      <button class="btn primary" id="gold-save">Сохранить эталон и к следующему →</button></div>
+  </div>`;
+}
+const goldKey = (c, r) => (!r ? "?" : r.na ? "na" : c.type === "scale" ? String(r.score) : r.answer);
+const goldLabel = (c, v) => (v === "na" ? "N/A" : c.type === "scale" ? v : c.critical_on === "yes" ? (v === "yes" ? "нарушение" : "нет нарушений") : v === "yes" ? "Да" : "Нет");
 
 function traceHtml(ev) {
   const f = ev.facts || {};

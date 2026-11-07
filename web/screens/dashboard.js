@@ -32,6 +32,14 @@ export async function render(root) {
       ${kpi("Стоимость", `$${fmt(s.cost_usd, 4)}`, s.avg_ms ? `≈ ${fmt(s.avg_ms / 1000, 1)} с на диалог` : "")}
     </div>
 
+    ${s.accuracy ? `<div class="card" style="margin-bottom:16px"><div class="card-h">🎯 Точность против эталона команды <span class="muted small" style="font-weight:400">${s.accuracy.dialogs} размеченных диалогов</span></div>
+      <div class="card-b"><div class="grid-kpi" style="grid-template-columns:repeat(3,1fr);margin-bottom:10px">
+        ${kpi("Совпадение по критериям", Math.round(s.accuracy.criterion_agreement * 100) + "%", "ответ модели = эталон")}
+        ${kpi("Диалогов без расхождений", `${s.accuracy.exact_dialogs}/${s.accuracy.dialogs}`, "все критерии совпали")}
+        ${kpi("Ошибка итога", "±" + fmt(s.accuracy.mean_abs_total), "среднее |балл − эталон|")}</div>
+        ${s.accuracy.criteria.map((c) => `<div class="hbar"><span>${esc(c.name)}</span><span class="track"><i style="width:${Math.round(c.rate * 100)}%;background:${c.rate >= 0.85 ? "var(--good)" : c.rate >= 0.65 ? "var(--mid)" : "var(--bad)"}"></i></span><b style="text-align:right">${Math.round(c.rate * 100)}%</b></div>
+          ${c.misses.slice(0, 3).map((m) => `<div class="small muted" style="padding-left:12px">✗ <a href="#/c/${encodeURIComponent(m.conversation_id)}">${esc(m.conversation_id)}</a>: модель ${esc(m.model)}, эталон ${esc(m.gold)}</div>`).join("")}`).join("")}
+      </div></div>` : `<div class="banner info" style="margin-bottom:16px"><b>🎯</b><div>Разметьте 15–20 диалогов во вкладке «Эталон» карточки — здесь появится точность модели против вашей разметки.</div></div>`}
     <div class="grid-2">
       <div class="card"><div class="card-h">Выполнение критериев <span class="muted small" style="font-weight:400">доля баллов от максимума, без N/A</span></div>
         <div class="card-b">${crit.map((c) => hbar(c)).join("")}

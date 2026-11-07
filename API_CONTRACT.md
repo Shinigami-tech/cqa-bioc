@@ -27,7 +27,9 @@ Ready-made Python pieces live in `backend/cqa/`: `scoring.py`, `sanitize.py`, `f
 | GET | `/api/appeals` | `?status=open\|upheld\|changed` | appeals, newest first, each plus `conversation_id` |
 | POST | `/api/appeals` | `{evaluation_id, criterion_id, comment, author?}` | appeal; 409 if one is already open for this criterion |
 | POST | `/api/appeals/{id}/decide` | `{action: "uphold" or "change", reason, answer? \| score? \| na?}` | `{appeal, evaluation: View}`; 409 if already decided |
-| GET | `/api/stats` | `?group=` | dashboard aggregates (see `server.mjs`) |
+| GET | `/api/labels` | | `{conversation_id: {results: {criterion_id: "yes"\|"no"\|"na"\|score}, author, updated_at}}`: team reference labels |
+| POST | `/api/labels` | `{conversation_id, results, author?, delete?}` | `{ok, count}` |
+| GET | `/api/stats` | `?group=` | dashboard aggregates (see `server.mjs`), including `accuracy` vs labels and `language_consistency` |
 | GET | `/api/export` | `?group=&format=csv\|json` | file download, one row per conversation × criterion |
 
 ### List row (`GET /api/conversations`)
