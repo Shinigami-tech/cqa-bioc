@@ -38,11 +38,12 @@ export async function render(root) {
         <select class="input" id="f-group"><option value="">Все наборы</option>${groups.map((g) => `<option ${g === st.group ? "selected" : ""}>${esc(g)}</option>`).join("")}</select>
         <div class="seg" id="f-lang">${[["", "Все языки"], ["RU", "RU"], ["KZ", "KZ"], ["EN", "EN"]].map(([v, l]) => `<button data-v="${v}" class="${st.language === v ? "on" : ""}">${l}</button>`).join("")}</div>
         <div class="seg" id="f-ch">${[["", "Все"], ["agent chat", "💬 Чаты"], ["voice call", "📞 Звонки"]].map(([v, l]) => `<button data-v="${v}" class="${st.channel === v ? "on" : ""}">${l}</button>`).join("")}</div>
+        <button class="btn ${st.status === "critical" ? "danger-on" : ""}" id="f-gross" title="Показать все диалоги с грубыми ошибками и объяснения">⚠ Грубые ошибки <b id="gross-n"></b></button>
         <select class="input" id="f-st">${[["", "Любой статус"], ["new", "Не оценены"], ["outdated", "Устарели (новый чек-лист)"], ["critical", "С грубой ошибкой"], ["appeal", "С апелляцией"]].map(([v, l]) => `<option value="${v}" ${st.status === v ? "selected" : ""}>${l}</option>`).join("")}</select>
         <input class="input" id="q" placeholder="Поиск по ID или тексту  /" value="${esc(st.q)}" style="flex:1;min-width:180px" />
       </div>
       <div class="table-wrap"><table class="t"><thead><tr>
-        ${th("conversation_id", "Диалог")}${th("channel", "Канал")}${th("language", "Язык")}<th>Запрос клиента</th>${th("total", "Итог")}<th>Отметки</th>${th("evaluated_at", "Оценён")}
+        ${th("conversation_id", "Диалог")}${th("channel", "Канал")}${th("language", "Язык")}<th id="th-preview">Запрос клиента</th>${th("total", "Итог")}<th>Отметки</th>${th("evaluated_at", "Оценён")}
       </tr></thead><tbody id="tb"></tbody></table></div>
     </div>
   </div>`;
@@ -51,16 +52,18 @@ export async function render(root) {
     const shown = sortRows(filterRows(rows));
     sessionStorage.setItem("cqa-order", JSON.stringify(shown.map((r) => r.conversation_id)));
     const scored = shown.filter((r) => r.total !== null);
+    root.querySelector("#gross-n").textContent = rows.filter((r) => r.gross_error).length || "";
+    root.querySelector("#th-preview").textContent = st.status === "critical" ? "Обоснование (критерий 08)" : "Запрос клиента";
     root.querySelector("#cnt").textContent = `${shown.length} показано · оценено ${scored.length} · средний ${scored.length ? fmt(scored.reduce((s, r) => s + r.total, 0) / scored.length) : "—"}`;
     root.querySelector("#tb").innerHTML = shown.map((r) => `
       <tr data-id="${esc(r.conversation_id)}">
         <td class="mono">${esc(r.conversation_id)}</td>
         <td>${channelIcon(r.channel)} ${r.channel === "voice call" ? "Звонок" : "Чат"}</td>
         <td><span class="pill">${esc(r.language)}</span></td>
-        <td class="preview" title="${esc(r.preview)}">${esc(r.preview)}</td>
+        ${st.status === "critical" ? `<td class="why-gross"><b>Почему грубая ошибка:</b> ${esc(r.gross_reason || "—")}</td>` : `<td class="preview" title="${esc(r.preview)}">${esc(r.preview)}</td>`}
         <td>${scoreHtml(r.total)}${r.original_total !== null && r.original_total !== r.total ? ` <span class="muted small"><s>${fmt(r.original_total)}</s></span>` : ""}</td>
         <td><div class="flags">
-          ${r.critical.length ? '<span class="pill bad">⚠ грубая ошибка</span>' : ""}
+          ${r.gross_error ? '<span class="pill bad">⚠ грубая ошибка</span>' : ""}
           ${r.appeals_open ? `<span class="pill info">апелляция</span>` : r.appeals_total ? `<span class="pill">пересмотрено</span>` : ""}
           ${r.outdated ? '<span class="pill">устарела</span>' : ""}
         </div></td>
@@ -75,7 +78,8 @@ export async function render(root) {
   q("#f-group").onchange = (e) => { st.group = e.target.value; sessionStorage.setItem("cqa-group", st.group); render(root); };
   q("#f-lang").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; st.language = b.dataset.v; render(root); };
   q("#f-ch").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; st.channel = b.dataset.v; render(root); };
-  q("#f-st").onchange = (e) => { st.status = e.target.value; draw(); };
+  q("#f-st").onchange = (e) => { st.status = e.target.value; render(root); };
+  q("#f-gross").onclick = () => { st.status = st.status === "critical" ? "" : "critical"; render(root); };
   q("#q").oninput = debounce((e) => { st.q = e.target.value.trim().toLowerCase(); draw(); });
 
   q("#load").onclick = async (e) => {
@@ -141,7 +145,7 @@ function parseTranscript(text, meta) {
 function filterRows(rows) {
   return rows.filter((r) => (!st.language || r.language === st.language) && (!st.channel || r.channel === st.channel)
     && (!st.q || r.conversation_id.toLowerCase().includes(st.q) || r.preview.toLowerCase().includes(st.q))
-    && (!st.status || (st.status === "new" && !r.evaluated_at) || (st.status === "outdated" && r.outdated) || (st.status === "critical" && r.critical.length)
+    && (!st.status || (st.status === "new" && !r.evaluated_at) || (st.status === "outdated" && r.outdated) || (st.status === "critical" && r.gross_error)
       || (st.status === "appeal" && r.appeals_total)));
 }
 function sortRows(rows) {

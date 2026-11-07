@@ -198,3 +198,6 @@ pre.code { background: var(--panel-2); border: 1px solid var(--line); border-rad
 .skel { background: linear-gradient(90deg, var(--line-2), var(--panel-2), var(--line-2)); background-size: 200% 100%; animation: sk 1.2s infinite; border-radius: 8px; height: 14px; }
 @keyframes sk { to { background-position: -200% 0; } }
 
+.btn.danger-on { background: var(--bad); border-color: var(--bad); color: #fff; }
+.why-gross { max-width: 520px; color: var(--ink-2); font-size: 13px; }
+.why-gross b { color: var(--bad); }

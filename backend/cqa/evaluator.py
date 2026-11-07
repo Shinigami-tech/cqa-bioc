@@ -211,7 +211,7 @@ def _mock(conv: dict, checklist: dict, f: dict) -> dict:
         elif "management" in cid and any(not w["warned"] for w in f["long_waits"]):
             r = {**base, "score": 7, "evidence_ids": [f["long_waits"][0]["to"]], "explanation": "Пауза более 3 минут без предупреждения."}
         elif c.get("critical_on") == "yes":
-            r = ({**base, "answer": "yes", "evidence_ids": [h["idx"] for h in f["gross_hints"]], "explanation": "Найдено: " + ", ".join(h["kind"] for h in f["gross_hints"]) + "."}
+            r = ({**base, "answer": "yes", "evidence_ids": list(dict.fromkeys(h["idx"] for h in f["gross_hints"])), "explanation": "Найдено: " + ", ".join(dict.fromkeys(h["kind"] for h in f["gross_hints"])) + f" — реплика оператора #{f['gross_hints'][0]['idx']}: «{conv['transcript'][f['gross_hints'][0]['idx']]['text'][:160]}»."}
                  if f["gross_hints"] else {**base, "answer": "no", "checked_span": span, "explanation": "MOCK: нарушений не найдено."})
         elif c.get("na_allowed"):
             r = {**base, "na": True, "na_reason": "MOCK: условие N/A (заглушка до подключения модели)."}

@@ -101,7 +101,7 @@ function resultHtml(ev, conv, history) {
       <div class="muted small">Модель: ${esc(ev.model)} · стоимость оценки $${fmt(ev.cost_usd || 0, 4)} · ${fmt(ev.ms / 1000, 1)} с · ${ago(ev.created_at)}</div>
     </div>
   </div>
-  ${t.critical_errors.length ? `<div class="banner bad"><b>⚠</b><div><b>Обнаружена грубая ошибка</b> (оскорбление, услуга в обход компании или раскрытие конфиденциальных данных). Отмечается отдельно от балла — смотрите критерий ниже.</div></div>` : ""}
+  ${t.critical_errors.length ? `<div class="banner bad"><b>⚠</b><div><b>Обнаружена грубая ошибка.</b> ${t.critical_errors.map((id) => { const r = ev.final_results.find((x) => x.criterion_id === id); return `${esc(r?.explanation || "")} ${(r?.evidence_ids || []).length ? `<span class="chip" data-ev="${r.evidence_ids.join(",")}">↳ ${r.evidence_ids.map((i) => "#" + i).join(" ")}</span>` : ""}`; }).join(" ")}<div class="small">Отмечается отдельно от балла и сохраняется в базе — диалог находится фильтром «⚠ Грубые ошибки».</div></div></div>` : ""}
   ${t.total === null ? `<div class="banner info"><b>i</b><div>Все критерии с весом получили N/A — по правилам чек-листа итог не рассчитывается.</div></div>` : ""}
   <div class="card">
     <div class="tabs">${[["criteria", "Критерии"], ["history", `Апелляции и история${ev.appeals.length ? ` (${ev.appeals.length})` : ""}`]].map(([k, l]) => `<button data-tab="${k}" class="${tab === k ? "on" : ""}">${l}</button>`).join("")}</div>
