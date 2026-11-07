@@ -1,5 +1,4 @@
 // Hash router. Each screen is a self-contained module: export async function render(root, params).
-import * as dashboard from "./screens/dashboard.js";
 import * as list from "./screens/list.js";
 import * as card from "./screens/card.js";
 import * as checklists from "./screens/checklists.js";
@@ -7,7 +6,6 @@ import * as appeals from "./screens/appeals.js";
 import { api } from "./lib/api.js";
 
 const routes = [
-  [/^#\/dashboard$/, dashboard, "dashboard"],
   [/^#\/list$/, list, "list"],
   [/^#\/c\/([^/]+)$/, card, "list"],
   [/^#\/checklists(?:\/([^/]+))?$/, checklists, "checklists"],
@@ -16,7 +14,7 @@ const routes = [
 
 let current = null;
 async function route() {
-  const hash = location.hash || "#/dashboard";
+  const hash = location.hash || "#/list";
   const root = document.getElementById("app");
   for (const [re, mod, nav] of routes) {
     const m = hash.match(re);
@@ -30,7 +28,7 @@ async function route() {
     refreshBadges();
     return;
   }
-  location.hash = "#/dashboard";
+  location.hash = "#/list";
 }
 
 export async function refreshBadges() {
@@ -39,20 +37,6 @@ export async function refreshBadges() {
     const b = document.getElementById("ap-count"); b.textContent = open; b.classList.toggle("hidden", !open);
   } catch {}
 }
-
-document.getElementById("theme").onclick = () => {
-  const t = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-  document.documentElement.dataset.theme = t;
-  try { localStorage.setItem("cqa-theme", t); } catch {}
-};
-// Accessibility mode (low vision): bigger type, high contrast, larger targets, no motion. Remembered per browser.
-const a11yBtn = document.getElementById("a11y");
-const setA11y = (on) => { document.documentElement.dataset.a11y = on ? "on" : ""; a11yBtn.setAttribute("aria-pressed", String(on)); try { localStorage.setItem("cqa-a11y", on ? "on" : ""); } catch {} };
-setA11y(document.documentElement.dataset.a11y === "on");
-a11yBtn.onclick = () => setA11y(document.documentElement.dataset.a11y !== "on");
-const zoom = (d) => { const cur = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--zoom")) || 1; const z = Math.min(1.6, Math.max(0.85, +(cur + d).toFixed(2))); document.documentElement.style.setProperty("--zoom", z); try { localStorage.setItem("cqa-zoom", z); } catch {} };
-document.getElementById("zoom-in").onclick = () => zoom(0.1);
-document.getElementById("zoom-out").onclick = () => zoom(-0.1);
 
 api("/api/health").then((h) => {
   document.getElementById("model").textContent = h.llm === "MOCK" ? "MOCK — модель не подключена" : `${h.llm}${h.votes > 1 ? ` · ${h.votes} голоса` : ""}`;

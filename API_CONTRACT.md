@@ -6,7 +6,6 @@ Ready-made Python pieces live in `backend/cqa/`: `scoring.py`, `sanitize.py`, `f
 ## Rules that must not be lost
 - **Totals are never stored.** On every read, compute `final_results` = model `results` with decided appeals applied, then call `compute_totals(checklist_version, final_results)`. Also return `original_totals` computed from `results`.
 - **Every evaluation stores `checklist_id` + `checklist_version`**, and the checklist is picked **by channel** (`agent chat` → chat set, `voice call` → call set).
-- `low_confidence` is the list of criterion ids with `confidence < 0.67`.
 
 ## Endpoints
 
@@ -28,22 +27,18 @@ Ready-made Python pieces live in `backend/cqa/`: `scoring.py`, `sanitize.py`, `f
 | GET | `/api/appeals` | `?status=open\|upheld\|changed` | appeals, newest first, each plus `conversation_id` |
 | POST | `/api/appeals` | `{evaluation_id, criterion_id, comment, author?}` | appeal; 409 if one is already open for this criterion |
 | POST | `/api/appeals/{id}/decide` | `{action: "uphold" or "change", reason, answer? \| score? \| na?}` | `{appeal, evaluation: View}`; 409 if already decided |
-| GET | `/api/labels` | | `{conversation_id: {results: {criterion_id: "yes"\|"no"\|"na"\|score}, author, updated_at}}`: team reference labels |
-| POST | `/api/labels` | `{conversation_id, results, author?, delete?}` | `{ok, count}` |
-| GET | `/api/stats` | `?group=` | dashboard aggregates (see `server.mjs`), including `accuracy` vs labels and `language_consistency` |
-| GET | `/api/export` | `?group=&format=csv\|json` | file download, one row per conversation × criterion |
 
 ### List row (`GET /api/conversations`)
 ```json
 { "conversation_id": "p1-ru-001", "group_id": "DEV", "channel": "agent chat", "language": "RU", "lines": 12,
   "total": 88.89, "original_total": 100, "critical": ["c08_gross"], "checklist_id": "chat", "checklist_version": 2,
-  "outdated": false, "low_confidence": 1, "appeals_open": 0, "appeals_total": 1,
+  "outdated": false, "appeals_open": 0, "appeals_total": 1,
   "evaluated_at": "ISO", "model": "gpt-4.1-mini", "cost_usd": 0.0012, "ms": 5300, "preview": "first client line…" }
 ```
 
 ### View (an evaluation as returned to the UI)
 The stored evaluation is `{id, conversation_id, group_id, checklist_id, checklist_name, checklist_version, created_at, ms}` plus everything `evaluator.evaluate()` returns (`results, problems, facts, model, votes, usage, cost_usd, prompt_version, trace`). The View adds:
-`appeals`, `final_results`, `totals`, `original_totals`, `checklist` (that version's JSON), `low_confidence`.
+`appeals`, `final_results`, `totals`, `original_totals`, `checklist` (that version's JSON).
 
 ### Appeal
 ```json

@@ -2,38 +2,29 @@
 
 A prototype for Freedom Broker that scores operator conversations (chats and calls in RU / KZ / EN) against configurable checklists. Every score comes with an explanation and a link to the exact message (or the moment in the call recording), can be appealed, and is reviewed by a human.
 
-## What it does
-- **Several checklists.** Chats and calls each have their own checklist (the call one is adapted to speech, following Freedom Broker's clarification). Each checklist is versioned, bound to a channel, and can be created, duplicated and edited in the UI.
-- **Hybrid evaluation, so numbers are never hallucinated:**
-  1. Code extracts facts from the dialog: client and operator language, first response time, pauses over 3 minutes, system events (escalation, «личность подтверждена», chat closed, connection lost) and red flags for gross errors.
-  2. An LLM judge (any OpenAI-compatible API, cloud or local through Ollama/vLLM) answers each criterion in strict JSON, citing message numbers.
-  3. Code validates the answer: N/A only where allowed, evidence must exist, a scale score snaps to an allowed step. On a violation it runs one repair retry.
-  4. Optional voting: `LLM_VOTES=3` runs three judges, takes the majority per criterion, and uses the agreement as confidence.
-  5. Code computes every number: weights, N/A redistribution, sections, the gross-error flag, rounding to 2 decimals.
-- **Evidence.** Clicking `#12` scrolls the transcript to that message and highlights it. For a call, the embedded player jumps to that second (the backend extracts the real mp3 from the organizers' player page).
-- **Transparency.** The «Как решила модель» tab shows the extracted facts, the full prompt, the raw model answer, tokens, cost, time and prompt version.
-- **Appeals.** An appeal on any criterion goes to the reviewer's workspace (original score, comment, highlighted fragment). The reviewer upholds or changes it with a reason, and the total is recomputed. The card keeps the original score, the decision and the final score.
-- **Human-review queue.** Criteria where the model's confidence is below 0.67 are flagged.
-- **Dashboard.** Average score, distribution, per-criterion compliance, breakdown by language and channel, gross errors, cost.
-- **Batch and control set.** Load any `group_id`, then click «Оценить» to evaluate everything new or outdated with a live progress bar. Export to CSV or JSON.
-- **Few-shot calibration.** Dialogs the team labels in the «Эталон» tab go into the prompt as examples (`LLM_FEWSHOT=2`, never the dialog being scored). The dashboard shows model accuracy against these labels.
-- **Language consistency.** The same scenario in RU / KZ / EN must get the same verdicts. The dashboard shows the match rate.
-- **Accessibility mode** for low-vision users: larger type, high contrast, 44 px targets, no animation, A−/A+ font size, «🔊 Озвучить» reads the evaluation aloud, skip link, ARIA labels.
-- **Frontend:** plain HTML/CSS/JS, one module per screen, so each screen can become a Dynamics 365 web resource. Light and dark theme, keyboard shortcuts (← → between dialogs, `/` for search).
+## What it does (strictly the Student Guide and the checklist)
+- **Checklist setup.** Add and edit criteria: wording, weight, answer type (Yes/No or scale with steps), whether N/A is allowed and its rule, sections, the gross-error flag. Every save becomes a new version that applies to new evaluations. Chats and calls have their own checklists (the call one adapts the official checklist to speech, per Freedom Broker's clarification).
+- **Evaluation.** Load a set by `group_id` (DEV or the control set) or upload a transcript by hand, pick a checklist (or let it be chosen by channel), and run the evaluation. RU / KZ / EN. Bot and system lines are context only.
+- **Result.** For each criterion the card shows the answer, points, weight, explanation and evidence message; for a missed action, the part of the dialog that was checked; for N/A, the reason. It also shows the total, section totals and the gross-error flag. Scores are computed by code: scale steps weighted, N/A weight redistributed, rounded to 2 decimals, no total when every weighted criterion is N/A.
+- **Card.** Clicking the evidence scrolls to the message. For a call, the embedded player jumps to that moment.
+- **Appeal and review.** An appeal targets one criterion and carries a comment. The reviewer sees the disputed score, the comment and the dialog fragment, then upholds or changes it with a reason. The total is recomputed, and the card keeps the original score, the decision and the final score.
+- **Model and cost.** Any OpenAI-compatible API. Model name and cost per evaluation (all calls included) are shown on the card.
+- **UI.** Plain HTML/CSS/JS with one module per screen, so it can be adapted as a Dynamics 365 HTML web resource. No login.
 
 ## Run
 ```bash
 cp .env.example .env      # CQA_API_URL = organizers' GET link without group_id; LLM_* = model
-npm start                 # reference server: http://localhost:3000 (Node 22.9+, no npm deps)
+npm start                 # http://localhost:3000 (Node 22.9+, no npm deps); data in ./data
 npm test                  # JS scoring tests
 cd backend && python -m pytest -q   # Python parity tests (scoring, facts, prompt)
 ```
 Without `LLM_API_KEY` the app runs in **MOCK** mode (rules over the same facts), so the UI works offline.
 
-Model settings: `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_VOTES`, `LLM_CONCURRENCY`, `LLM_PRICE_IN` / `LLM_PRICE_OUT` (USD per 1M tokens, used to estimate cost per evaluation).
+Storage: local JSON files by default; set `SUPABASE_URL` + `SUPABASE_KEY` to use Postgres (table `cqa_docs`, required on Vercel).
 
-## Accuracy
-`node tools/accuracy.mjs labels/dev-gold.json` compares model answers with the team's hand labels: per-criterion agreement, mean error of the total, accuracy of the gross-error flag. See `labels/README.md`.
+Deploy: `vercel.json` serves `web/` and runs the API as a function (`api/index.mjs`).
+
+Model settings: `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_VOTES`, `LLM_CONCURRENCY`, `LLM_PRICE_IN` / `LLM_PRICE_OUT` (USD per 1M tokens, used to estimate cost per evaluation).
 
 ## Layout
 | Path | What |

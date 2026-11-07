@@ -20,7 +20,6 @@ export async function render(root) {
         <button class="btn" id="up-open">⤒ Загрузить транскрипт</button>
         <select class="input" id="cl" title="Чек-лист для оценки"><option value="">Чек-лист: по каналу</option>${sets.map((x) => `<option value="${esc(x.id)}" ${st.checklist === x.id ? "selected" : ""}>${esc(x.name)} · v${x.active}</option>`).join("")}</select>
         <button class="btn primary" id="batch">▶ Оценить</button>
-        <a class="btn" id="csv">⬇ CSV</a><a class="btn" id="json">⬇ JSON</a>
       </div>
     </div>
     <div class="card card-b stack hidden" id="up" style="margin-bottom:12px">
@@ -39,7 +38,7 @@ export async function render(root) {
         <select class="input" id="f-group"><option value="">Все наборы</option>${groups.map((g) => `<option ${g === st.group ? "selected" : ""}>${esc(g)}</option>`).join("")}</select>
         <div class="seg" id="f-lang">${[["", "Все языки"], ["RU", "RU"], ["KZ", "KZ"], ["EN", "EN"]].map(([v, l]) => `<button data-v="${v}" class="${st.language === v ? "on" : ""}">${l}</button>`).join("")}</div>
         <div class="seg" id="f-ch">${[["", "Все"], ["agent chat", "💬 Чаты"], ["voice call", "📞 Звонки"]].map(([v, l]) => `<button data-v="${v}" class="${st.channel === v ? "on" : ""}">${l}</button>`).join("")}</div>
-        <select class="input" id="f-st">${[["", "Любой статус"], ["new", "Не оценены"], ["outdated", "Устарели (новый чек-лист)"], ["critical", "С грубой ошибкой"], ["review", "Нужна проверка"], ["appeal", "С апелляцией"]].map(([v, l]) => `<option value="${v}" ${st.status === v ? "selected" : ""}>${l}</option>`).join("")}</select>
+        <select class="input" id="f-st">${[["", "Любой статус"], ["new", "Не оценены"], ["outdated", "Устарели (новый чек-лист)"], ["critical", "С грубой ошибкой"], ["appeal", "С апелляцией"]].map(([v, l]) => `<option value="${v}" ${st.status === v ? "selected" : ""}>${l}</option>`).join("")}</select>
         <input class="input" id="q" placeholder="Поиск по ID или тексту  /" value="${esc(st.q)}" style="flex:1;min-width:180px" />
       </div>
       <div class="table-wrap"><table class="t"><thead><tr>
@@ -62,7 +61,6 @@ export async function render(root) {
         <td>${scoreHtml(r.total)}${r.original_total !== null && r.original_total !== r.total ? ` <span class="muted small"><s>${fmt(r.original_total)}</s></span>` : ""}</td>
         <td><div class="flags">
           ${r.critical.length ? '<span class="pill bad">⚠ грубая ошибка</span>' : ""}
-          ${r.low_confidence ? `<span class="pill mid">проверить ${r.low_confidence}</span>` : ""}
           ${r.appeals_open ? `<span class="pill info">апелляция</span>` : r.appeals_total ? `<span class="pill">пересмотрено</span>` : ""}
           ${r.outdated ? '<span class="pill">устарела</span>' : ""}
         </div></td>
@@ -72,8 +70,6 @@ export async function render(root) {
   draw();
 
   const q = (s) => root.querySelector(s);
-  const exp = (f) => `/api/export?format=${f}${st.group ? `&group=${encodeURIComponent(st.group)}` : ""}`;
-  q("#csv").href = exp("csv"); q("#json").href = exp("json");
   q("#tb").onclick = (e) => { const tr = e.target.closest("tr[data-id]"); if (tr) location.hash = `#/c/${encodeURIComponent(tr.dataset.id)}`; };
   root.querySelector("thead").onclick = (e) => { const k = e.target.closest("th")?.dataset.k; if (!k) return; st.dir = st.sort === k ? -st.dir : 1; st.sort = k; render(root); };
   q("#f-group").onchange = (e) => { st.group = e.target.value; sessionStorage.setItem("cqa-group", st.group); render(root); };
@@ -146,7 +142,7 @@ function filterRows(rows) {
   return rows.filter((r) => (!st.language || r.language === st.language) && (!st.channel || r.channel === st.channel)
     && (!st.q || r.conversation_id.toLowerCase().includes(st.q) || r.preview.toLowerCase().includes(st.q))
     && (!st.status || (st.status === "new" && !r.evaluated_at) || (st.status === "outdated" && r.outdated) || (st.status === "critical" && r.critical.length)
-      || (st.status === "review" && r.low_confidence) || (st.status === "appeal" && r.appeals_total)));
+      || (st.status === "appeal" && r.appeals_total)));
 }
 function sortRows(rows) {
   const k = st.sort;
