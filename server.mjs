@@ -60,10 +60,21 @@ async function runEvaluation(cid) {
   if (!conv) throw httpError(404, `conversation ${cid} not loaded`);
   const s = setFor(conv.channel); const v = activeOf(s);
   const t0 = Date.now();
-  const out = await evaluate(conv, v.checklist);
+  const out = await evaluate(conv, v.checklist, pickExamples(conv, v.checklist));
   const ev = { id: newId("ev"), conversation_id: cid, group_id: conv.group_id, checklist_id: s.id, checklist_name: s.name, checklist_version: v.version, created_at: new Date().toISOString(), ms: Date.now() - t0, ...out };
   const all = evals(); all.push(ev); save("evaluations", all);
   return view(ev);
+}
+
+// Up to LLM_FEWSHOT team-labeled dialogs of the same channel (same language first), excluding this one.
+function pickExamples(conv, checklist) {
+  const n = Number(process.env.LLM_FEWSHOT ?? 2); if (!n) return [];
+  const labels = load("labels", {}), convs = load("conversations", {});
+  const ids = checklist.criteria.map((c) => c.id);
+  return Object.entries(labels)
+    .filter(([cid, g]) => cid !== conv.conversation_id && convs[cid]?.channel === conv.channel && ids.every((id) => g.results[id] !== undefined))
+    .sort(([a], [b]) => (convs[b].language === conv.language) - (convs[a].language === conv.language))
+    .slice(0, n).map(([cid, g]) => ({ conv: convs[cid], gold: Object.fromEntries(ids.map((id) => [id, g.results[id]])) }));
 }
 
 async function pool(items, n, fn) {
@@ -241,8 +252,17 @@ const routes = {
       const gt = computeTotals(v.checklist, goldResults).total, mt = v.original_totals.total;
       acc.abs += Math.abs((gt ?? 0) - (mt ?? 0)); if (all) acc.exact++;
     }
+    // Per-operator profile (name from the operator's introduction; masked names are skipped).
+    const ops = {};
+    for (const v of vs) {
+      const name = v.facts?.operator_name; if (!name || v.totals.total === null) continue;
+      const o = (ops[name] ||= { name, n: 0, sum: 0, critical: 0, weak: {} }); o.n++; o.sum += v.totals.total; if (v.totals.critical_errors.length) o.critical++;
+      for (const row of v.totals.rows) if (row.applicable && row.normalized < 1) { const c = v.checklist.criteria.find((x) => x.id === row.id); o.weak[c.text] = (o.weak[c.text] || 0) + 1; }
+    }
+    const operators = Object.values(ops).map((o) => ({ name: o.name, n: o.n, avg: Number((o.sum / o.n).toFixed(2)), critical: o.critical, weakest: Object.entries(o.weak).sort((a, b) => b[1] - a[1])[0]?.[0] || null })).sort((a, b) => a.avg - b.avg);
     const appeals = load("appeals", []);
     return {
+      operators,
       accuracy: acc.dialogs ? { dialogs: acc.dialogs, criterion_agreement: acc.agree / acc.n, exact_dialogs: acc.exact, mean_abs_total: Number((acc.abs / acc.dialogs).toFixed(2)), criteria: Object.values(acc.criteria).map((k) => ({ ...k, rate: k.ok / k.n })) } : null,
       language_consistency: compared ? { rate: agree / compared, scenarios: Object.values(groupsByScenario).filter((a) => a.length > 1).length, mismatches } : null,
       conversations: convs.length, evaluated: vs.length, avg_total: avg(totals),

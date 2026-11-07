@@ -14,12 +14,12 @@ CL = {f: json.loads((ROOT / "checklists" / f"{f}.json").read_text()) for f in ("
 @pytest.mark.parametrize("i", range(len(PROMPTS)))
 def test_prompt_parity_with_js(i):
     c = PROMPTS[i]
-    assert build_prompt(c["conv"], CL[c["checklist_id"]]) == c["prompt"]
+    assert build_prompt(c["conv"], CL[c["checklist_id"]], examples=c.get("examples")) == c["prompt"]
 
 
 def test_mock_evaluate_runs_and_scores(monkeypatch):
     monkeypatch.delenv("LLM_API_KEY", raising=False)
-    conv = PROMPTS[-1]["conv"]
+    conv = next(p["conv"] for p in PROMPTS if p["conv"]["channel"] == "voice call")
     out = evaluate(conv, CL["call"])
     t = compute_totals(CL["call"], out["results"])
     assert out["model"].startswith("MOCK") and "facts" in out

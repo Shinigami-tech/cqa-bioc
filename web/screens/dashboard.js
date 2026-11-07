@@ -62,6 +62,9 @@ export async function render(root) {
         <div style="display:flex;align-items:baseline;gap:8px;margin:10px 0"><b style="font-size:26px">${Math.round(s.language_consistency.rate * 100)}%</b><span class="muted small">совпадений по ${s.language_consistency.scenarios} сценариям</span></div>
         <div class="list-links">${s.language_consistency.mismatches.slice(0, 5).map((m) => `<a href="#/c/${encodeURIComponent(m.ids[0])}"><span class="mono">${esc(m.scenario)}</span><span class="pill mid">${m.diff.length} расх.</span></a>`).join("") || '<span class="muted small">Расхождений нет</span>'}</div>
       </div></div>` : ""}
+      ${s.operators?.length ? `<div class="card"><div class="card-h">👤 Операторы — кому нужен коучинг</div><div class="card-b list-links">
+        ${s.operators.slice(0, 6).map((o) => `<a href="#/list" title="${o.n} диал."><span><b>${esc(o.name)}</b>${o.critical ? ' <span class="pill bad">⚠</span>' : ""}<br><span class="muted small">${o.weakest ? "слабое место: " + esc(o.weakest) : "без замечаний"}</span></span>${scoreHtml(o.avg)}</a>`).join("")}
+        <div class="muted small" style="padding-top:6px">Имя берётся из представления оператора; скрытые имена пропускаются.</div></div></div>` : ""}
       <div class="card"><div class="card-h">Как это работает</div><div class="card-b small ink2">
         1. Код извлекает факты из диалога: язык, задержки, системные события.<br>
         2. Модель оценивает каждый критерий и ссылается на реплики.<br>

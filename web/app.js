@@ -45,6 +45,15 @@ document.getElementById("theme").onclick = () => {
   document.documentElement.dataset.theme = t;
   try { localStorage.setItem("cqa-theme", t); } catch {}
 };
+// Accessibility mode (low vision): bigger type, high contrast, larger targets, no motion. Remembered per browser.
+const a11yBtn = document.getElementById("a11y");
+const setA11y = (on) => { document.documentElement.dataset.a11y = on ? "on" : ""; a11yBtn.setAttribute("aria-pressed", String(on)); try { localStorage.setItem("cqa-a11y", on ? "on" : ""); } catch {} };
+setA11y(document.documentElement.dataset.a11y === "on");
+a11yBtn.onclick = () => setA11y(document.documentElement.dataset.a11y !== "on");
+const zoom = (d) => { const cur = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--zoom")) || 1; const z = Math.min(1.6, Math.max(0.85, +(cur + d).toFixed(2))); document.documentElement.style.setProperty("--zoom", z); try { localStorage.setItem("cqa-zoom", z); } catch {} };
+document.getElementById("zoom-in").onclick = () => zoom(0.1);
+document.getElementById("zoom-out").onclick = () => zoom(-0.1);
+
 api("/api/health").then((h) => {
   document.getElementById("model").textContent = h.llm === "MOCK" ? "MOCK — модель не подключена" : `${h.llm}${h.votes > 1 ? ` · ${h.votes} голоса` : ""}`;
   document.getElementById("model-dot").classList.toggle("mock", h.llm === "MOCK");

@@ -37,6 +37,18 @@ INTRO_NAME = re.compile(r"(^|[\s,.!])([ЯяМм]ен|[Яя]|I'?m|I am|It's)\s+[A
 MMSS = re.compile(r"^\d+:\d{2}(:\d{2})?$")
 
 
+NAME_RE = re.compile(r"(?:меня зовут|менің атым|my name is|(?:^|[\s,.!])(?:[Яя]|[Мм]ен|I'?m|I am|It's))\s+([A-ZА-ЯЁӘҒҚҢӨҰҮҺІ][a-zа-яёәғқңөұүһі]+)")
+NOT_NAMES = {"Рад", "Сейчас", "Понимаю", "Вижу", "Уточню", "Here", "Sorry", "Happy", "Glad"}
+
+
+def operator_name(text: str = "") -> str | None:
+    """Operator name from the introduction (per-operator analytics). Masked names stay None."""
+    m = NAME_RE.search(text or "")
+    if not m or m.group(1) in NOT_NAMES:
+        return None
+    return re.sub(r"(ым|ім|мын|мін|пын|пін)$", "", m.group(1)) or m.group(1)
+
+
 def has_intro(t: str) -> bool:
     return bool(RE["intro"].search(t) or INTRO_NAME.search(t))
 
@@ -165,6 +177,7 @@ def extract_facts(conv: dict) -> dict:
         "first_reply_has_greeting": bool(RE["greet"].search(first_op["text"])) if first_op else None,
         "first_reply_has_introduction": has_intro(first_op["text"]) if first_op else None,
         "first_reply_language": detect_lang(first_op["text"]) if first_op else None,
+        "operator_name": next((n for n in (operator_name(o["text"]) for o in ops) if n), None),
         "long_waits": long_waits,
         "last_operator_idx": last_op["i"] if last_op else None,
         "farewell_idx": next((o["i"] for o in ops if RE["farewell"].search(o["text"])), None),

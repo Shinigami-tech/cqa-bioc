@@ -25,7 +25,7 @@ from pathlib import Path
 from .facts import extract_facts, facts_text
 from .sanitize import sanitize
 
-PROMPT_VERSION = "2026-11-07.2"
+PROMPT_VERSION = "2026-11-07.3"
 _PROMPTS = Path(__file__).resolve().parents[2] / "prompts"
 PROMPT = {k: (_PROMPTS / f).read_text(encoding="utf-8") for k, f in
           {"system": "judge_system.md", "call": "call_rules.md", "guidance": "guidance.md"}.items()}
@@ -35,7 +35,21 @@ def numbered(transcript: list[dict]) -> str:
     return "\n".join(f"[{i}] {t.get('timestamp')} {str(t.get('speaker')).upper()}: {t.get('text')}" for i, t in enumerate(transcript))
 
 
-def build_prompt(conv: dict, checklist: dict, facts: dict | None = None) -> dict:
+def examples_text(examples: list[dict] | None) -> str:
+    """Few-shot calibration from team reference labels of OTHER dialogs: [{"conv": {...}, "gold": {criterion_id: value}}]."""
+    if not examples:
+        return ""
+    parts = []
+    for k, e in enumerate(examples):
+        tr = e["conv"]["transcript"]
+        if len(tr) > 40:
+            tr = tr[:40] + [{"timestamp": "…", "speaker": "system", "text": f"(ещё {len(e['conv']['transcript']) - 40} реплик)"}]
+        parts.append(f"--- Пример {k + 1} ({e['conv'].get('channel')}, {e['conv'].get('language')}) ---\n{numbered(tr)}\n"
+                     f"Эталон: {json.dumps(e['gold'], ensure_ascii=False, separators=(',', ':'))}")
+    return "ПРИМЕРЫ ЭТАЛОННОЙ РАЗМЕТКИ (команда QA, другие диалоги):\n" + "\n\n".join(parts) + "\n\n"
+
+
+def build_prompt(conv: dict, checklist: dict, facts: dict | None = None, examples: list[dict] | None = None) -> dict:
     facts = facts or extract_facts(conv)
     crit = []
     for c in checklist["criteria"]:
@@ -52,7 +66,7 @@ def build_prompt(conv: dict, checklist: dict, facts: dict | None = None) -> dict
     system = (PROMPT["system"]
               .replace("{{CALL_RULES}}", PROMPT["call"] if is_call else "")
               .replace("{{GUIDANCE}}", PROMPT["guidance"].replace("{{INSTRUCTIONS}}", checklist["instructions"]) if checklist.get("instructions") else ""))
-    user = (f"ЧЕК-ЛИСТ:\n{json.dumps(crit, ensure_ascii=False, indent=1)}\n\nФАКТЫ:\n{facts_text(facts)}\n\n"
+    user = (f"{examples_text(examples)}ЧЕК-ЛИСТ:\n{json.dumps(crit, ensure_ascii=False, indent=1)}\n\nФАКТЫ:\n{facts_text(facts)}\n\n"
             f"ДИАЛОГ ({conv.get('channel')}, {conv.get('language')}):\n{numbered(conv['transcript'])}")
     return {"system": system, "user": user}
 
@@ -150,11 +164,11 @@ def vote(checklist: dict, runs: list[list[dict]]) -> list[dict]:
     return out
 
 
-def evaluate(conv: dict, checklist: dict) -> dict:
+def evaluate(conv: dict, checklist: dict, examples: list[dict] | None = None) -> dict:
     facts = extract_facts(conv)
     if not os.getenv("LLM_API_KEY"):
         return {**_mock(conv, checklist, facts), "facts": facts, "model": "MOCK (без ключа модели)", "cost_usd": 0, "prompt_version": PROMPT_VERSION}
-    prompt = build_prompt(conv, checklist, facts)
+    prompt = build_prompt(conv, checklist, facts, examples)
     n = max(1, int(os.getenv("LLM_VOTES", "1")))
     with ThreadPoolExecutor(max_workers=n) as ex:
         runs = list(ex.map(lambda _: _one_run(conv, checklist, prompt), range(n)))
@@ -165,7 +179,7 @@ def evaluate(conv: dict, checklist: dict) -> dict:
         "results": vote(checklist, [r["results"] for r in runs]),
         "problems": [p for r in runs for p in r["problems"]],
         "facts": facts, "model": os.getenv("LLM_MODEL", "gpt-4.1-mini"), "votes": n, "usage": usage, "cost_usd": round(cost, 5),
-        "prompt_version": PROMPT_VERSION,
+        "prompt_version": PROMPT_VERSION, "examples": [e["conv"]["conversation_id"] for e in (examples or [])],
         "trace": {"system": prompt["system"], "user": prompt["user"], "raw": [r["raw"] for r in runs], "repaired": any(r["repaired"] for r in runs)},
     }
 

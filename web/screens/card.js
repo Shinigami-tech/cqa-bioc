@@ -5,7 +5,7 @@ const SPEAKER = { operator: "Оператор", client: "Клиент", bot: "Б
 let tab = "criteria";
 let keyHandler;
 
-export function unmount() { removeEventListener("keydown", keyHandler); }
+export function unmount() { removeEventListener("keydown", keyHandler); try { speechSynthesis.cancel(); } catch {} }
 
 export async function render(root, [cid]) {
   const [{ conversation: conv, evaluation: ev, history }, labels] = await Promise.all([api(`/api/conversations/${encodeURIComponent(cid)}`), api("/api/labels")]);
@@ -27,6 +27,7 @@ export async function render(root, [cid]) {
       <a class="btn ghost ${prev ? "" : "hidden"}" href="#/c/${encodeURIComponent(prev || "")}" title="Предыдущий (←)">‹</a>
       <span class="muted small">${pos >= 0 ? `${pos + 1} / ${order.length}` : ""}</span>
       <a class="btn ghost ${next ? "" : "hidden"}" href="#/c/${encodeURIComponent(next || "")}" title="Следующий (→)">›</a>
+      ${ev ? '<button class="btn speak" id="speak" title="Озвучить оценку голосом (для слабовидящих)">🔊 Озвучить</button>' : ""}
       <button class="btn primary" id="eval">${ev ? "↻ Переоценить" : "▶ Оценить"}</button>
     </div>
     <div class="dlg">
@@ -50,6 +51,19 @@ export async function render(root, [cid]) {
     e.target.disabled = true; e.target.textContent = "Оцениваю…";
     try { await api("/api/evaluate", { conversation_id: cid }); toast("Оценка обновлена"); } catch (err) { toast(err.message, true); }
     render(root, [cid]);
+  };
+
+  // Read the evaluation aloud (Web Speech API) — for low-vision users.
+  const sp = q("#speak");
+  if (sp) sp.onclick = () => {
+    if (speechSynthesis.speaking) { speechSynthesis.cancel(); sp.classList.remove("on"); return; }
+    const t = ev.totals;
+    const parts = [`Диалог ${conv.conversation_id}. Итог: ${t.total === null ? "не рассчитывается" : fmt(t.total) + " из " + t.max_score}.`];
+    if (t.critical_errors.length) parts.push("Внимание: обнаружена грубая ошибка.");
+    for (const c of ev.checklist.criteria) { const r = ev.final_results.find((x) => x.criterion_id === c.id); if (r) parts.push(`${c.text}: ${verdict(c, r).label}. ${r.na ? r.na_reason : r.explanation}`); }
+    const u = new SpeechSynthesisUtterance(parts.join(" "));
+    u.lang = "ru-RU"; u.rate = 1; u.onend = () => sp.classList.remove("on");
+    sp.classList.add("on"); speechSynthesis.speak(u);
   };
 
   // Audio: the backend resolves the short-lived mp3 link only when the user wants to listen.
@@ -108,7 +122,7 @@ function resultHtml(ev, conv, history, gold) {
       <div class="muted small">${esc(ev.model)}${ev.votes > 1 ? ` · ${ev.votes} голоса` : ""} · ${fmt(ev.ms / 1000, 1)} с${ev.cost_usd ? ` · $${fmt(ev.cost_usd, 5)}` : ""} · ${ago(ev.created_at)}</div>
     </div>
   </div>
-  ${t.critical_errors.length ? `<div class="banner bad"><b>⚠</b><div><b>Грубая ошибка.</b> ${t.critical_errors.map((id) => esc(ev.checklist.criteria.find((c) => c.id === id)?.text || id)).join(", ")} — отмечается отдельно от балла.</div></div>` : ""}
+  ${t.critical_errors.length ? `<div class="banner bad"><b>⚠</b><div><b>Обнаружена грубая ошибка</b> (оскорбление, услуга в обход компании или раскрытие конфиденциальных данных). Отмечается отдельно от балла — смотрите критерий ниже.</div></div>` : ""}
   ${low.length ? `<div class="banner mid"><b>🔎</b><div>Модель не уверена в ${low.length} ${low.length === 1 ? "критерии" : "критериях"} — рекомендуем проверить вручную.</div></div>` : ""}
   ${t.total === null ? `<div class="banner info"><b>i</b><div>Все критерии с весом получили N/A — по правилам чек-листа итог не рассчитывается.</div></div>` : ""}
   <div class="card">
@@ -132,6 +146,7 @@ function criteriaHtml(ev, conv, gold) {
       <div>
         <div class="crit-top"><b title="${esc(c.description || "")}">${esc(c.text)}</b><span class="pill ${v.cls === "yes" ? "good" : v.cls === "no" ? "bad" : v.cls === "part" ? "mid" : ""}">${v.label}</span></div>
         <div class="why">${r.na ? `<b>N/A.</b> ${esc(r.na_reason)}` : esc(r.explanation)}</div>
+        ${r.suggestion && !r.na ? `<div class="coach"><b>💡 Как лучше:</b> ${esc(r.suggestion)}</div>` : ""}
         <div class="row">
           ${(r.evidence_ids || []).length ? `<span class="chip" data-ev="${r.evidence_ids.join(",")}" ${isCall ? 'data-play=""' : ""}>↳ ${r.evidence_ids.map((i) => "#" + i).join(" ")}${isCall ? " ▶" : ""}</span>` : ""}
           ${r.checked_span ? `<span class="chip" data-span="${esc(r.checked_span)}">🔎 проверено ${esc(r.checked_span)}</span>` : ""}
@@ -184,6 +199,7 @@ function traceHtml(ev) {
     <h4 style="margin:16px 0 6px">Запуск</h4>
     <dl class="kv">
       <dt>Модель</dt><dd>${esc(ev.model)}${ev.votes > 1 ? ` · голосование ${ev.votes} прогонов` : ""}</dd>
+      <dt>Примеры эталона в промпте</dt><dd>${(ev.examples || []).map((x) => `<a href="#/c/${encodeURIComponent(x)}">${esc(x)}</a>`).join(", ") || "нет (разметьте диалоги во вкладке «Эталон»)"}</dd>
       <dt>Версия промпта</dt><dd class="mono">${esc(ev.prompt_version || "—")}</dd>
       <dt>Токены</dt><dd>${ev.usage ? `${fmt(ev.usage.prompt_tokens, 0)} вход · ${fmt(ev.usage.completion_tokens, 0)} выход` : "—"}</dd>
       <dt>Стоимость / время</dt><dd>$${fmt(ev.cost_usd || 0, 5)} · ${fmt(ev.ms / 1000, 2)} с</dd>
