@@ -18,8 +18,9 @@ Ready-made Python pieces live in `backend/cqa/`: `scoring.py`, `sanitize.py`, `f
 | GET | `/api/conversations` | `?group=` | list rows (below) |
 | GET | `/api/conversations/{id}` | | `{conversation, evaluation: View or null, history: [{id, created_at, checklist_id, checklist_version, model, total}]}` |
 | GET | `/api/conversations/{id}/audio` | | `{src, page}`: `audio.resolve_audio(audio_url)` (signed mp3, about 1 h) |
-| POST | `/api/evaluate` | `{conversation_id}` | View of the new evaluation |
-| POST | `/api/evaluate-batch` | `{group_id?, only_missing?, concurrency?}` | `{count, ms, cost_usd, results: [{ok, cid, total}]}` |
+| POST | `/api/conversations` | one record, an array of records, or the organizers' API response | `{loaded, ids}`: manual transcript upload. Validate speakers (client/operator/bot/system); missing language is detected from client lines; default group `UPLOAD` |
+| POST | `/api/evaluate` | `{conversation_id, checklist_id?}` | View of the new evaluation. Without `checklist_id`, use the set bound to the channel |
+| POST | `/api/evaluate-batch` | `{group_id?, only_missing?, concurrency?, checklist_id?}` | `{count, ms, cost_usd, results: [{ok, cid, total}]}` |
 | GET | `/api/checklists` | | `[{id, name, channels, active, versions: [{version, created_at, note, checklist}], active_checklist}]` |
 | POST | `/api/checklists` | `{name, channels, checklist, note?}` | `{id}`: new set (seeded `chat` and `call` come from `checklists/*.json`) |
 | POST | `/api/checklists/{id}/versions` | `{checklist, note}` | `{version}`: validate, append, make active |

@@ -25,7 +25,7 @@ from pathlib import Path
 from .facts import extract_facts, facts_text
 from .sanitize import sanitize
 
-PROMPT_VERSION = "2026-11-07.3"
+PROMPT_VERSION = "2026-11-07.4"
 _PROMPTS = Path(__file__).resolve().parents[2] / "prompts"
 PROMPT = {k: (_PROMPTS / f).read_text(encoding="utf-8") for k, f in
           {"system": "judge_system.md", "call": "call_rules.md", "guidance": "guidance.md"}.items()}

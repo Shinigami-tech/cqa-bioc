@@ -197,7 +197,6 @@ pre.code { background: var(--panel-2); border: 1px solid var(--line); border-rad
 .toast.bad { background: var(--bad); }
 .skel { background: linear-gradient(90deg, var(--line-2), var(--panel-2), var(--line-2)); background-size: 200% 100%; animation: sk 1.2s infinite; border-radius: 8px; height: 14px; }
 @keyframes sk { to { background-position: -200% 0; } }
-.coach { margin: 2px 0 8px; padding: 7px 10px; border-radius: 8px; background: var(--info-soft); color: var(--ink); font-size: 13px; }
 
 /* ---------- accessibility ---------- */
 .skip { position: absolute; left: -9999px; top: 8px; z-index: 100; background: var(--accent); color: #fff; padding: 8px 14px; border-radius: 8px; }

@@ -16,10 +16,8 @@ A prototype for Freedom Broker that scores operator conversations (chats and cal
 - **Human-review queue.** Criteria where the model's confidence is below 0.67 are flagged.
 - **Dashboard.** Average score, distribution, per-criterion compliance, breakdown by language and channel, gross errors, cost.
 - **Batch and control set.** Load any `group_id`, then click «Оценить» to evaluate everything new or outdated with a live progress bar. Export to CSV or JSON.
-- **AI coach.** For every failed criterion the model writes a ready phrase saying how the operator should have answered («💡 Как лучше»).
 - **Few-shot calibration.** Dialogs the team labels in the «Эталон» tab go into the prompt as examples (`LLM_FEWSHOT=2`, never the dialog being scored). The dashboard shows model accuracy against these labels.
 - **Language consistency.** The same scenario in RU / KZ / EN must get the same verdicts. The dashboard shows the match rate.
-- **Operator profiles.** The operator's name is taken from their introduction; the dashboard shows average score and weak spot per operator.
 - **Accessibility mode** for low-vision users: larger type, high contrast, 44 px targets, no animation, A−/A+ font size, «🔊 Озвучить» reads the evaluation aloud, skip link, ARIA labels.
 - **Frontend:** plain HTML/CSS/JS, one module per screen, so each screen can become a Dynamics 365 web resource. Light and dark theme, keyboard shortcuts (← → between dialogs, `/` for search).
 

@@ -40,8 +40,7 @@ def sanitize(conv: dict, checklist: dict, raw: dict | None) -> tuple[list[dict],
             conf = None
         out = {"criterion_id": c["id"], "na": na, "na_reason": (r.get("na_reason") or "") if na else "",
                "explanation": r.get("explanation") or "", "evidence_ids": evidence,
-               "checked_span": r.get("checked_span") or "", "confidence": conf,
-               "suggestion": r["suggestion"].strip() if isinstance(r.get("suggestion"), str) else ""}
+               "checked_span": r.get("checked_span") or "", "confidence": conf}
         if not na:
             if c["type"] == "scale":
                 out["score"] = snap(c, r.get("score"))

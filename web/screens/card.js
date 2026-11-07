@@ -8,7 +8,7 @@ let keyHandler;
 export function unmount() { removeEventListener("keydown", keyHandler); try { speechSynthesis.cancel(); } catch {} }
 
 export async function render(root, [cid]) {
-  const [{ conversation: conv, evaluation: ev, history }, labels] = await Promise.all([api(`/api/conversations/${encodeURIComponent(cid)}`), api("/api/labels")]);
+  const [{ conversation: conv, evaluation: ev, history }, labels, sets] = await Promise.all([api(`/api/conversations/${encodeURIComponent(cid)}`), api("/api/labels"), api("/api/checklists")]);
   const gold = labels[cid]?.results || null;
   const isCall = conv.channel === "voice call";
   const base = ev?.facts?.audio_offset_base_idx ?? 0;
@@ -28,6 +28,7 @@ export async function render(root, [cid]) {
       <span class="muted small">${pos >= 0 ? `${pos + 1} / ${order.length}` : ""}</span>
       <a class="btn ghost ${next ? "" : "hidden"}" href="#/c/${encodeURIComponent(next || "")}" title="Следующий (→)">›</a>
       ${ev ? '<button class="btn speak" id="speak" title="Озвучить оценку голосом (для слабовидящих)">🔊 Озвучить</button>' : ""}
+      <select class="input" id="cl" title="Чек-лист для оценки"><option value="">Чек-лист: по каналу</option>${sets.map((x) => `<option value="${esc(x.id)}">${esc(x.name)} · v${x.active}</option>`).join("")}</select>
       <button class="btn primary" id="eval">${ev ? "↻ Переоценить" : "▶ Оценить"}</button>
     </div>
     <div class="dlg">
@@ -49,7 +50,7 @@ export async function render(root, [cid]) {
   const q = (s) => root.querySelector(s);
   q("#eval").onclick = async (e) => {
     e.target.disabled = true; e.target.textContent = "Оцениваю…";
-    try { await api("/api/evaluate", { conversation_id: cid }); toast("Оценка обновлена"); } catch (err) { toast(err.message, true); }
+    try { await api("/api/evaluate", { conversation_id: cid, checklist_id: q("#cl").value || undefined }); toast("Оценка обновлена"); } catch (err) { toast(err.message, true); }
     render(root, [cid]);
   };
 
@@ -146,7 +147,6 @@ function criteriaHtml(ev, conv, gold) {
       <div>
         <div class="crit-top"><b title="${esc(c.description || "")}">${esc(c.text)}</b><span class="pill ${v.cls === "yes" ? "good" : v.cls === "no" ? "bad" : v.cls === "part" ? "mid" : ""}">${v.label}</span></div>
         <div class="why">${r.na ? `<b>N/A.</b> ${esc(r.na_reason)}` : esc(r.explanation)}</div>
-        ${r.suggestion && !r.na ? `<div class="coach"><b>💡 Как лучше:</b> ${esc(r.suggestion)}</div>` : ""}
         <div class="row">
           ${(r.evidence_ids || []).length ? `<span class="chip" data-ev="${r.evidence_ids.join(",")}" ${isCall ? 'data-play=""' : ""}>↳ ${r.evidence_ids.map((i) => "#" + i).join(" ")}${isCall ? " ▶" : ""}</span>` : ""}
           ${r.checked_span ? `<span class="chip" data-span="${esc(r.checked_span)}">🔎 проверено ${esc(r.checked_span)}</span>` : ""}

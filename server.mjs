@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { load, save, newId } from "./lib/store.mjs";
 import { evaluate } from "./lib/evaluator.mjs";
+import { detectLang } from "./lib/facts.mjs";
 import { computeTotals, validateChecklist } from "./lib/scoring.mjs";
 
 const PORT = Number(process.env.PORT || 3000);
@@ -55,10 +56,13 @@ function view(ev, { full = true } = {}) {
 const evals = () => load("evaluations", []);
 const latestEval = (cid, all = evals()) => { for (let i = all.length - 1; i >= 0; i--) if (all[i].conversation_id === cid) return all[i]; };
 
-async function runEvaluation(cid) {
+// checklistId: the set the user picked; otherwise the set bound to the conversation's channel.
+async function runEvaluation(cid, checklistId) {
   const conv = load("conversations", {})[cid];
   if (!conv) throw httpError(404, `conversation ${cid} not loaded`);
-  const s = setFor(conv.channel); const v = activeOf(s);
+  const s = checklistId ? sets().find((x) => x.id === checklistId) : setFor(conv.channel);
+  if (!s) throw httpError(404, `checklist ${checklistId} not found`);
+  const v = activeOf(s);
   const t0 = Date.now();
   const out = await evaluate(conv, v.checklist, pickExamples(conv, v.checklist));
   const ev = { id: newId("ev"), conversation_id: cid, group_id: conv.group_id, checklist_id: s.id, checklist_name: s.name, checklist_version: v.version, created_at: new Date().toISOString(), ms: Date.now() - t0, ...out };
@@ -130,7 +134,28 @@ const routes = {
     return { src: m[1].replace(/&amp;/g, "&"), page: conv.audio_url };
   },
 
-  "POST /api/evaluate": async (_, __, body) => runEvaluation(body.conversation_id),
+  "POST /api/evaluate": async (_, __, body) => runEvaluation(body.conversation_id, body.checklist_id),
+
+  // Manual upload of a transcript (Student Guide: «Загрузите транскрипт, выберите чек-лист и запустите оценку»).
+  // Accepts one record, an array of records, or the organizers' full API response.
+  "POST /api/conversations": async (_, __, body) => {
+    const recs = body?.data?.records || (Array.isArray(body) ? body : body.records || [body]);
+    const convs = load("conversations", {}); const ids = [];
+    for (const r of recs) {
+      const tr = r.transcript;
+      if (!Array.isArray(tr) || !tr.length) throw httpError(400, "transcript must be a non-empty array of {timestamp, speaker, text}");
+      for (const [i, t] of tr.entries()) {
+        if (!["client", "operator", "bot", "system"].includes(t.speaker)) throw httpError(400, `line ${i}: speaker must be client/operator/bot/system`);
+        if (typeof t.text !== "string") throw httpError(400, `line ${i}: text is required`);
+        t.timestamp = String(t.timestamp ?? "");
+      }
+      const id = r.conversation_id || newId("upload");
+      const language = r.language || detectLang(tr.filter((t) => t.speaker === "client").map((t) => t.text).join(" ")) || "RU";
+      convs[id] = { conversation_id: id, channel: r.channel === "voice call" ? "voice call" : "agent chat", language, transcript: tr, audio_url: r.audio_url || null, group_id: r.group_id || body.group_id || "UPLOAD", loaded_at: new Date().toISOString() };
+      ids.push(id);
+    }
+    save("conversations", convs); return { loaded: ids.length, ids };
+  },
 
   "POST /api/evaluate-batch": async (_, __, body) => {
     const all = evals();
@@ -139,7 +164,7 @@ const routes = {
       .filter((c) => { if (!body.only_missing) return true; const ev = latestEval(c.conversation_id, all); const s = setFor(c.channel); return !ev || ev.checklist_id !== s.id || ev.checklist_version !== s.active; })
       .map((c) => c.conversation_id);
     const t0 = Date.now();
-    const res = await pool(ids, Number(body.concurrency || process.env.LLM_CONCURRENCY || 4), async (cid) => { const v = await runEvaluation(cid); return { cid, total: v.totals.total, cost_usd: v.cost_usd }; });
+    const res = await pool(ids, Number(body.concurrency || process.env.LLM_CONCURRENCY || 4), async (cid) => { const v = await runEvaluation(cid, body.checklist_id); return { cid, total: v.totals.total, cost_usd: v.cost_usd }; });
     return { count: ids.length, ms: Date.now() - t0, cost_usd: Number(res.reduce((s, r) => s + (r.cost_usd || 0), 0).toFixed(4)), results: res };
   },
 
@@ -252,17 +277,8 @@ const routes = {
       const gt = computeTotals(v.checklist, goldResults).total, mt = v.original_totals.total;
       acc.abs += Math.abs((gt ?? 0) - (mt ?? 0)); if (all) acc.exact++;
     }
-    // Per-operator profile (name from the operator's introduction; masked names are skipped).
-    const ops = {};
-    for (const v of vs) {
-      const name = v.facts?.operator_name; if (!name || v.totals.total === null) continue;
-      const o = (ops[name] ||= { name, n: 0, sum: 0, critical: 0, weak: {} }); o.n++; o.sum += v.totals.total; if (v.totals.critical_errors.length) o.critical++;
-      for (const row of v.totals.rows) if (row.applicable && row.normalized < 1) { const c = v.checklist.criteria.find((x) => x.id === row.id); o.weak[c.text] = (o.weak[c.text] || 0) + 1; }
-    }
-    const operators = Object.values(ops).map((o) => ({ name: o.name, n: o.n, avg: Number((o.sum / o.n).toFixed(2)), critical: o.critical, weakest: Object.entries(o.weak).sort((a, b) => b[1] - a[1])[0]?.[0] || null })).sort((a, b) => a.avg - b.avg);
     const appeals = load("appeals", []);
     return {
-      operators,
       accuracy: acc.dialogs ? { dialogs: acc.dialogs, criterion_agreement: acc.agree / acc.n, exact_dialogs: acc.exact, mean_abs_total: Number((acc.abs / acc.dialogs).toFixed(2)), criteria: Object.values(acc.criteria).map((k) => ({ ...k, rate: k.ok / k.n })) } : null,
       language_consistency: compared ? { rate: agree / compared, scenarios: Object.values(groupsByScenario).filter((a) => a.length > 1).length, mismatches } : null,
       conversations: convs.length, evaluated: vs.length, avg_total: avg(totals),
