@@ -98,7 +98,7 @@ const routes = {
       .filter((c) => !body.only_missing || latestEval(c.conversation_id)?.checklist_version !== activeChecklist().version)
       .map((c) => c.conversation_id);
     const t0 = Date.now();
-    const res = await pool(ids, Number(body.concurrency || 6), async (cid) => { const v = await runEvaluation(cid); return { cid, total: v.totals.total, cost_usd: v.cost_usd }; });
+    const res = await pool(ids, Number(body.concurrency || process.env.LLM_CONCURRENCY || 4), async (cid) => { const v = await runEvaluation(cid); return { cid, total: v.totals.total, cost_usd: v.cost_usd }; });
     return { count: ids.length, ms: Date.now() - t0, cost_usd: Number(res.reduce((s, r) => s + (r.cost_usd || 0), 0).toFixed(4)), results: res };
   },
 
