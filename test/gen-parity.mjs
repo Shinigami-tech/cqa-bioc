@@ -4,7 +4,7 @@ import fs from "node:fs";
 import { computeTotals } from "../lib/scoring.mjs";
 import { snap } from "../lib/evaluator.mjs";
 
-const fb = JSON.parse(fs.readFileSync(new URL("../checklists/default.json", import.meta.url)));
+const fb = JSON.parse(fs.readFileSync(new URL("../checklists/chat.json", import.meta.url)));
 const variants = [
   fb,
   { ...fb, rounding: { decimals: 0, mode: "half_up" } },

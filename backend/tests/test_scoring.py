@@ -8,7 +8,7 @@ import pytest
 from cqa.scoring import compute_totals, round_score, snap, validate_checklist
 
 ROOT = Path(__file__).resolve().parents[2]
-FB = json.loads((ROOT / "checklists" / "default.json").read_text())
+FB = json.loads((ROOT / "checklists" / "chat.json").read_text())
 PARITY = json.loads((ROOT / "test" / "fixtures" / "parity.json").read_text())
 
 

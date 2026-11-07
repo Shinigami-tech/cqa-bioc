@@ -58,10 +58,10 @@ test("sanitize drops bad evidence and illegal N/A", () => {
   assert.equal(problems.length, 2);
 });
 
-// ---- the organizers' checklist (checklists/default.json) ----
+// ---- the organizers' checklist (checklists/chat.json) ----
 import fs from "node:fs";
 import { snap } from "../lib/evaluator.mjs";
-const fb = JSON.parse(fs.readFileSync(new URL("../checklists/default.json", import.meta.url)));
+const fb = JSON.parse(fs.readFileSync(new URL("../checklists/chat.json", import.meta.url)));
 const all = (over = {}) => fb.criteria.map((c) => ({ criterion_id: c.id, ...(c.type === "scale" ? { score: c.scale.max } : { answer: c.critical_on === "yes" ? "no" : "yes" }), ...(over[c.id] || {}) }));
 
 test("Freedom checklist: perfect chat = 100, weights sum to 100", () => {

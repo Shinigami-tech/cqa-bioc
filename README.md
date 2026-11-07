@@ -1,51 +1,44 @@
-# CQA — Conversation Quality Analytics (team BioC)
+# CQA: Conversation Quality Analytics · team BioC
 
-Freedom Broker CQA Hackathon prototype: configure a checklist, auto-evaluate operator dialogs (RU / KZ / EN, chats and calls), see score + explanation + evidence line per criterion, appeal a criterion, reviewer decides, total is recomputed.
+A prototype for Freedom Broker that scores operator conversations (chats and calls in RU / KZ / EN) against configurable checklists. Every score comes with an explanation and a link to the exact message (or the moment in the call recording), can be appealed, and is reviewed by a human.
+
+## What it does
+- **Several checklists.** Chats and calls each have their own checklist (the call one is adapted to speech, following Freedom Broker's clarification). Each checklist is versioned, bound to a channel, and can be created, duplicated and edited in the UI.
+- **Hybrid evaluation, so numbers are never hallucinated:**
+  1. Code extracts facts from the dialog: client and operator language, first response time, pauses over 3 minutes, system events (escalation, «личность подтверждена», chat closed, connection lost) and red flags for gross errors.
+  2. An LLM judge (any OpenAI-compatible API, cloud or local through Ollama/vLLM) answers each criterion in strict JSON, citing message numbers.
+  3. Code validates the answer: N/A only where allowed, evidence must exist, a scale score snaps to an allowed step. On a violation it runs one repair retry.
+  4. Optional voting: `LLM_VOTES=3` runs three judges, takes the majority per criterion, and uses the agreement as confidence.
+  5. Code computes every number: weights, N/A redistribution, sections, the gross-error flag, rounding to 2 decimals.
+- **Evidence.** Clicking `#12` scrolls the transcript to that message and highlights it. For a call, the embedded player jumps to that second (the backend extracts the real mp3 from the organizers' player page).
+- **Transparency.** The «Как решила модель» tab shows the extracted facts, the full prompt, the raw model answer, tokens, cost, time and prompt version.
+- **Appeals.** An appeal on any criterion goes to the reviewer's workspace (original score, comment, highlighted fragment). The reviewer upholds or changes it with a reason, and the total is recomputed. The card keeps the original score, the decision and the final score.
+- **Human-review queue.** Criteria where the model's confidence is below 0.67 are flagged.
+- **Dashboard.** Average score, distribution, per-criterion compliance, breakdown by language and channel, gross errors, cost.
+- **Batch and control set.** Load any `group_id`, then click «Оценить» to evaluate everything new or outdated with a live progress bar. Export to CSV or JSON.
+- **Frontend:** plain HTML/CSS/JS, one module per screen, so each screen can become a Dynamics 365 web resource. Light and dark theme, keyboard shortcuts (← → between dialogs, `/` for search).
 
 ## Run
-
-Requires Node.js 22.9+ and no npm dependencies.
-
 ```bash
-cp .env.example .env     # paste the organizers' GET link (without group_id) into CQA_API_URL
-npm start                # http://localhost:3000
-npm test                 # scoring engine tests
+cp .env.example .env      # CQA_API_URL = organizers' GET link without group_id; LLM_* = model
+npm start                 # reference server: http://localhost:3000 (Node 22.9+, no npm deps)
+npm test                  # JS scoring tests
+cd backend && python -m pytest -q   # Python parity tests (scoring, facts, prompt)
 ```
+Without `LLM_API_KEY` the app runs in **MOCK** mode (rules over the same facts), so the UI works offline.
 
-1. **Диалоги** → enter `DEV` → «Загрузить набор» → «Оценить все».
-2. Click a row to open the card. Clicking «↳ реплики» scrolls to and highlights the evidence line. For calls it also shows the position in the recording.
-3. «Оспорить» → comment → **Апелляции** tab → reviewer upholds or changes the score with a reason → total is recomputed. The card shows the original score, the decision and the final score.
-4. **Чек-лист** → edit or replace a criterion → «Сохранить как vN» → **Диалоги** → enter the control `group_id` → load → «Оценить все».
+Model settings: `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_VOTES`, `LLM_CONCURRENCY`, `LLM_PRICE_IN` / `LLM_PRICE_OUT` (USD per 1M tokens, used to estimate cost per evaluation).
 
-Without `LLM_API_KEY` the app uses a **MOCK** evaluator: heuristics only, enough for UI work. Set `LLM_API_KEY`, `LLM_MODEL` and optionally `LLM_BASE_URL` (any OpenAI-compatible API) for real evaluation. Cost per evaluation is computed from token usage × `LLM_PRICE_IN/OUT` and shown on the card and after a batch.
+## Accuracy
+`node tools/accuracy.mjs labels/dev-gold.json` compares model answers with the team's hand labels: per-criterion agreement, mean error of the total, accuracy of the gross-error flag. See `labels/README.md`.
 
-## Architecture
-
-| Part | File | Notes |
-|---|---|---|
-| HTTP API + static | `server.mjs` | zero-dependency `node:http`; also the CORS-safe proxy to the organizers' API |
-| Scoring | `lib/scoring.mjs` | **deterministic**: weights, scale normalization, N/A weight redistribution, sections, gross-error flag, rounding from the checklist |
-| Evaluator | `lib/evaluator.mjs` | one LLM call per dialog, strict JSON, evidence ids validated, one repair retry; MOCK fallback |
-| Storage | `lib/store.mjs` | JSON files in `data/` (conversations, checklist versions, evaluations, appeals) |
-| UI | `web/` | plain HTML/CSS/JS; each screen in `web/screens/*.js` is a standalone module with `render(root, params)` so it can be packaged as a Dynamics 365 HTML web resource |
-
-Evaluations store the checklist version they used. Appeals never mutate the model's result: the final result is the original result plus the decided appeals, so original, decision and final are always available.
-
-### API
-- `POST /api/groups/:group_id/load` fetches a dataset (DEV or control)
-- `GET /api/conversations?group=` lists dialogs with totals
-- `GET /api/conversations/:id` returns the transcript and the latest evaluation (original and final totals, appeals)
-- `POST /api/evaluate {conversation_id}` evaluates one dialog
-- `POST /api/evaluate-batch {group_id, only_missing, concurrency}` evaluates a set in parallel
-- `GET /api/checklist`, `GET /api/checklists`, `POST /api/checklist {checklist, note}` (creates a new active version)
-- `GET /api/appeals?status=`, `POST /api/appeals {evaluation_id, criterion_id, comment}`
-- `POST /api/appeals/:id/decide {action: uphold|change, answer|score|na, reason}`
-
-### Checklist format
-```json
-{ "max_score": 100, "rounding": {"decimals": 0, "mode": "half_up"}, "critical_zeroes_total": false,
-  "criteria": [{ "id": "greeting", "section": "Contact", "text": "...", "weight": 10,
-                 "type": "binary|scale", "scale": {"min": 0, "max": 2},
-                 "na_allowed": true, "na_rule": "...", "critical": false }] }
-```
-`checklists/default.json` is a **placeholder** until the organizers' checklist PDF is transcribed.
+## Layout
+| Path | What |
+|---|---|
+| `web/` | UI: `screens/dashboard, list, card, checklists, appeals`, `lib/api.js` |
+| `server.mjs` | reference API (Node); contract in `API_CONTRACT.md` |
+| `lib/` | `facts.mjs`, `evaluator.mjs`, `scoring.mjs`, `store.mjs` |
+| `prompts/` | judge prompt shared by JS and Python |
+| `checklists/` | `chat.json` (official checklist), `call.json` (speech adaptation) |
+| `backend/cqa/` | Python: `scoring.py`, `sanitize.py`, `facts.py`, `evaluator.py`, `audio.py` |
+| `test/fixtures/` | parity fixtures generated from the JS reference |

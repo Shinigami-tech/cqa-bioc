@@ -33,9 +33,14 @@ def sanitize(conv: dict, checklist: dict, raw: dict | None) -> tuple[list[dict],
                 evidence.append(i)
         if len(raw_ev) != len(evidence):
             problems.append(f"{c['id']}: bad evidence ids")
+        try:
+            conf = float(r.get("confidence"))
+            conf = max(0.0, min(1.0, conf)) if conf == conf else None
+        except (TypeError, ValueError):
+            conf = None
         out = {"criterion_id": c["id"], "na": na, "na_reason": (r.get("na_reason") or "") if na else "",
                "explanation": r.get("explanation") or "", "evidence_ids": evidence,
-               "checked_span": r.get("checked_span") or ""}
+               "checked_span": r.get("checked_span") or "", "confidence": conf}
         if not na:
             if c["type"] == "scale":
                 out["score"] = snap(c, r.get("score"))

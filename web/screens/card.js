@@ -1,110 +1,208 @@
-import { api, esc, toast, verdict, offsetSec, mmss } from "../lib/api.js";
-import { scoreClass } from "./list.js";
+import { api, esc, toast, verdict, offsetSec, mmss, timeLabel, ring, confHtml, fmt, LANG, channelIcon, ago } from "../lib/api.js";
+import { refreshBadges } from "../app.js";
 
 const SPEAKER = { operator: "Оператор", client: "Клиент", bot: "Бот", system: "Система" };
+let tab = "criteria";
+let keyHandler;
+
+export function unmount() { removeEventListener("keydown", keyHandler); }
 
 export async function render(root, [cid]) {
-  const { conversation: conv, evaluation: ev } = await api(`/api/conversations/${encodeURIComponent(cid)}`);
+  const { conversation: conv, evaluation: ev, history } = await api(`/api/conversations/${encodeURIComponent(cid)}`);
   const isCall = conv.channel === "voice call";
+  const base = ev?.facts?.audio_offset_base_idx ?? 0;
+  const order = JSON.parse(sessionStorage.getItem("cqa-order") || "[]");
+  const pos = order.indexOf(cid);
+  const prev = pos > 0 ? order[pos - 1] : null, next = pos >= 0 && pos < order.length - 1 ? order[pos + 1] : null;
 
   root.innerHTML = `
-  <section class="pad">
-    <div class="toolbar">
-      <a href="#/list">← к списку</a>
-      <h2 class="mono">${esc(conv.conversation_id)}</h2>
-      <span class="tag">${isCall ? "📞 звонок" : "💬 чат"}</span><span class="tag">${esc(conv.language)}</span>
-      ${isCall && conv.audio_url ? `<a class="btn" target="_blank" rel="noopener" href="${esc(conv.audio_url)}">▶ Открыть запись</a>` : ""}
-      <button id="eval" class="primary">${ev ? "Переоценить" : "Оценить"}</button>
+  <div class="page">
+    <div class="page-head">
+      <a class="btn ghost" href="#/list">← Диалоги</a>
+      <h1 class="mono" style="font-size:20px">${esc(conv.conversation_id)}</h1>
+      <span class="pill">${channelIcon(conv.channel)} ${isCall ? "Звонок" : "Чат"}</span><span class="pill">${LANG[conv.language] || esc(conv.language)}</span>
+      ${ev ? `<span class="pill info" title="Чек-лист, по которому сделана оценка">${esc(ev.checklist_name || ev.checklist_id)} · v${ev.checklist_version}</span>` : ""}
+      <span class="spacer"></span>
+      <a class="btn ghost ${prev ? "" : "hidden"}" href="#/c/${encodeURIComponent(prev || "")}" title="Предыдущий (←)">‹</a>
+      <span class="muted small">${pos >= 0 ? `${pos + 1} / ${order.length}` : ""}</span>
+      <a class="btn ghost ${next ? "" : "hidden"}" href="#/c/${encodeURIComponent(next || "")}" title="Следующий (→)">›</a>
+      <button class="btn primary" id="eval">${ev ? "↻ Переоценить" : "▶ Оценить"}</button>
     </div>
-    <div class="split">
-      <div class="transcript" id="tr">${conv.transcript.map((t, i) => `
-        <div class="line sp-${t.speaker}" id="m${i}" data-i="${i}">
-          <span class="idx">${i}</span>
-          <span class="ts" ${isCall ? `title="Позиция в записи"` : ""}>${isCall ? mmss(offsetSec(conv.transcript, i)) : esc(t.timestamp)}</span>
-          <span class="who">${SPEAKER[t.speaker] || esc(t.speaker)}</span>
-          <span class="txt">${esc(t.text)}</span>
-        </div>`).join("")}
+    <div class="dlg">
+      <div class="card convo">
+        ${isCall ? `<div class="convo-head"><div class="audio"><audio id="audio" controls preload="none"></audio><a class="btn ghost small" target="_blank" rel="noopener" href="${esc(conv.audio_url)}" title="Открыть страницу записи">↗</a></div>
+          <div class="muted small" id="audio-msg">Нажмите на время реплики, чтобы прослушать этот фрагмент.</div></div>` : ""}
+        <div class="convo-body" id="tr">${conv.transcript.map((t, i) => `
+          <div class="msg ${esc(t.speaker)}" id="m${i}" data-i="${i}">
+            <div class="meta">${t.speaker !== "system" ? `<b>${SPEAKER[t.speaker] || esc(t.speaker)}</b>` : ""}
+              <span class="${isCall ? "ts-play" : ""}" data-play="${i}" title="${isCall ? "Прослушать с этого места" : ""}">${isCall ? "▶ " + mmss(offsetSec(conv.transcript, i, base)) : esc(timeLabel(t.timestamp))}</span><span class="ix">#${i}</span></div>
+            <div class="bubble">${esc(t.text)}</div>
+          </div>`).join("")}
+        </div>
       </div>
-      <div class="result">${ev ? resultHtml(ev, conv) : '<p class="muted">Оценки ещё нет. Нажмите «Оценить».</p>'}</div>
+      <div class="result" id="res">${ev ? resultHtml(ev, conv, history) : `<div class="card empty"><b>Диалог ещё не оценён</b>Нажмите «Оценить» — модель проверит его по чек-листу «${isCall ? "звонки" : "чаты"}».</div>`}</div>
     </div>
-  </section>`;
+  </div>`;
 
-  root.querySelector("#eval").onclick = async (e) => {
+  const q = (s) => root.querySelector(s);
+  q("#eval").onclick = async (e) => {
     e.target.disabled = true; e.target.textContent = "Оцениваю…";
-    try { await api("/api/evaluate", { conversation_id: cid }); toast("Готово"); } catch (err) { toast(err.message, true); }
+    try { await api("/api/evaluate", { conversation_id: cid }); toast("Оценка обновлена"); } catch (err) { toast(err.message, true); }
     render(root, [cid]);
   };
 
-  // Evidence → scroll to and highlight the line(s); checked span → highlight the range.
-  root.querySelector(".result").onclick = async (e) => {
-    const ev1 = e.target.closest("[data-ev]");
-    if (ev1) return focusLines(root, ev1.dataset.ev.split(",").map(Number), isCall ? conv : null);
-    const sp = e.target.closest("[data-span]");
-    if (sp) { const [a, b = a] = sp.dataset.span.split("-").map(Number); return focusLines(root, range(a, b), null, "span"); }
-    const ap = e.target.closest("[data-appeal]");
-    if (ap) return openAppealForm(ap.closest(".crit"), ap.dataset.appeal, ev, root, cid);
+  // Audio: the backend resolves the short-lived mp3 link only when the user wants to listen.
+  let audioReady = null;
+  const audio = q("#audio");
+  const ensureAudio = () => audioReady ||= api(`/api/conversations/${encodeURIComponent(cid)}/audio`).then((a) => { audio.src = a.src; return new Promise((ok) => { audio.addEventListener("loadedmetadata", ok, { once: true }); audio.load(); }); }).catch((e) => { q("#audio-msg").textContent = `Запись недоступна: ${e.message}`; audioReady = null; throw e; });
+  const seek = async (i) => {
+    if (!audio) return;
+    try { await ensureAudio(); audio.currentTime = offsetSec(conv.transcript, i, base); await audio.play(); } catch {}
   };
+  if (audio) {
+    audio.addEventListener("play", () => ensureAudio(), { once: true });
+    audio.addEventListener("timeupdate", () => {
+      const t = audio.currentTime; let cur = -1;
+      conv.transcript.forEach((_, i) => { if (offsetSec(conv.transcript, i, base) <= t) cur = i; });
+      root.querySelectorAll(".msg.playing").forEach((n) => n.classList.remove("playing"));
+      root.querySelector(`#m${cur}`)?.classList.add("playing");
+    });
+  }
+  q("#tr").onclick = (e) => { const p = e.target.closest("[data-play]"); if (p && isCall) seek(Number(p.dataset.play)); };
+
+  const res = q("#res");
+  res.onclick = async (e) => {
+    const t = e.target.closest("[data-tab]"); if (t) { tab = t.dataset.tab; res.innerHTML = resultHtml(ev, conv, history); return; }
+    const evi = e.target.closest("[data-ev]"); if (evi) { const ids = evi.dataset.ev.split(",").map(Number); focusLines(root, ids, "hit"); if (isCall && evi.dataset.play !== undefined) seek(ids[0]); return; }
+    const sp = e.target.closest("[data-span]"); if (sp) { const [a, b = a] = sp.dataset.span.split(/[-–]/).map(Number); if (Number.isFinite(a)) focusLines(root, range(a, Math.min(b, conv.transcript.length - 1)), "span"); return; }
+    const ap = e.target.closest("[data-appeal]"); if (ap) return openAppeal(ap.closest(".crit"), ap.dataset.appeal, ev, root, cid);
+  };
+
+  keyHandler = (e) => {
+    if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) return;
+    if (e.key === "ArrowLeft" && prev) location.hash = `#/c/${encodeURIComponent(prev)}`;
+    if (e.key === "ArrowRight" && next) location.hash = `#/c/${encodeURIComponent(next)}`;
+  };
+  addEventListener("keydown", keyHandler);
 }
 
-function resultHtml(ev, conv) {
+function resultHtml(ev, conv, history) {
   const t = ev.totals, o = ev.original_totals;
   const changed = t.total !== o.total;
-  const sections = Object.entries(t.sections);
+  const secs = Object.entries(t.sections).filter(([n]) => !/груб/i.test(n));
+  const low = ev.low_confidence || [];
   return `
-  <div class="total">
-    <div><div class="muted">Итог</div><div class="big ${t.total === null ? "" : scoreClass(t.total)}">${t.total ?? "N/A"}<small>/${t.max_score}</small></div>
-      ${changed ? `<div class="muted">исходный: <s>${o.total}</s> → после апелляции: <b>${t.total}</b></div>` : ""}</div>
-    ${t.critical_errors.length ? `<div class="tag bad big-tag">⚠ Грубая ошибка: ${t.critical_errors.map(esc).join(", ")}</div>` : ""}
-    ${sections.length ? `<div class="sections">${sections.map(([n, v]) => `<div><span class="muted">${esc(n)}</span><b>${v ?? "N/A"}</b></div>`).join("")}</div>` : ""}
-    <div class="muted small">Чек-лист v${ev.checklist_version} · ${esc(ev.model)} · ${ev.ms} мс${ev.cost_usd ? ` · $${ev.cost_usd}` : ""}</div>
+  <div class="card summary">
+    ${ring(t.total, t.max_score)}
+    <div class="secbars">
+      ${changed ? `<div class="small">После апелляции: <s class="muted">${fmt(o.total)}</s> → <b>${fmt(t.total)}</b></div>` : ""}
+      ${secs.map(([n, v]) => `<div class="secbar"><span class="ink2">${esc(n)}</span><b style="text-align:right">${v === null ? "N/A" : fmt(v, 0)}</b><div class="progress"><i style="width:${v ?? 0}%"></i></div></div>`).join("")}
+      <div class="muted small">${esc(ev.model)}${ev.votes > 1 ? ` · ${ev.votes} голоса` : ""} · ${fmt(ev.ms / 1000, 1)} с${ev.cost_usd ? ` · $${fmt(ev.cost_usd, 5)}` : ""} · ${ago(ev.created_at)}</div>
+    </div>
   </div>
-  ${ev.checklist.criteria.map((c) => {
-    const r = ev.final_results.find((x) => x.criterion_id === c.id);
-    const orig = ev.results.find((x) => x.criterion_id === c.id);
-    const row = t.rows.find((x) => x.id === c.id);
-    const aps = ev.appeals.filter((a) => a.criterion_id === c.id);
-    const open = aps.find((a) => a.status === "open");
-    return `
-    <div class="crit ${r.na ? "na" : ""} ${t.critical_errors.includes(c.id) ? "critical" : ""}">
-      <div class="crit-head">
-        <b title="${esc(c.description || "")}">${esc(c.text)}</b>
-        <span class="verdict">${verdict(c, r)}</span>
-      </div>
-      <div class="meta">
-        ${c.critical_on === "yes" ? "без баллов, отмечается отдельно" : `вес ${c.weight}`}${row?.applicable ? ` → ${(row.effective_weight * 100).toFixed(1)}% · ${row.points.toFixed(1)} балл.` : " · не учитывается"}
-        ${c.critical ? ' · <span class="tag bad">критичный</span>' : ""}
-        ${r.overridden ? ` · <span class="tag warn">изменено проверяющим (было: ${verdict(c, orig)})</span>` : ""}
-      </div>
-      <p>${r.na ? `<b>N/A:</b> ${esc(r.na_reason)}` : esc(r.explanation)}</p>
-      <div class="links">
-        ${r.evidence_ids?.length ? `<a href="javascript:void 0" data-ev="${r.evidence_ids.join(",")}">↳ реплики ${r.evidence_ids.map((i) => "#" + i).join(", ")}</a>` : ""}
-        ${r.checked_span ? `<a href="javascript:void 0" data-span="${esc(r.checked_span)}">🔎 проверенный участок ${esc(r.checked_span)}</a>` : ""}
-        ${open ? '<span class="tag warn">апелляция на рассмотрении</span>' : `<a href="javascript:void 0" data-appeal="${c.id}">Оспорить</a>`}
-      </div>
-      ${aps.filter((a) => a.status !== "open").map((a) => `<div class="small muted">Апелляция: «${esc(a.comment)}» → ${a.status === "upheld" ? "оценка подтверждена" : "оценка изменена"}: ${esc(a.decision?.reason)}</div>`).join("")}
-    </div>`;
-  }).join("")}`;
+  ${t.critical_errors.length ? `<div class="banner bad"><b>⚠</b><div><b>Грубая ошибка.</b> ${t.critical_errors.map((id) => esc(ev.checklist.criteria.find((c) => c.id === id)?.text || id)).join(", ")} — отмечается отдельно от балла.</div></div>` : ""}
+  ${low.length ? `<div class="banner mid"><b>🔎</b><div>Модель не уверена в ${low.length} ${low.length === 1 ? "критерии" : "критериях"} — рекомендуем проверить вручную.</div></div>` : ""}
+  ${t.total === null ? `<div class="banner info"><b>i</b><div>Все критерии с весом получили N/A — по правилам чек-листа итог не рассчитывается.</div></div>` : ""}
+  <div class="card">
+    <div class="tabs">${[["criteria", "Критерии"], ["trace", "Как решила модель"], ["history", `История${ev.appeals.length ? ` (${ev.appeals.length})` : ""}`]].map(([k, l]) => `<button data-tab="${k}" class="${tab === k ? "on" : ""}">${l}</button>`).join("")}</div>
+    ${tab === "criteria" ? criteriaHtml(ev, conv) : tab === "trace" ? traceHtml(ev) : historyHtml(ev, history)}
+  </div>`;
 }
 
-function focusLines(root, ids, callConv, cls = "hit") {
-  root.querySelectorAll(".line.hit,.line.span").forEach((n) => n.classList.remove("hit", "span"));
+function criteriaHtml(ev, conv) {
+  const isCall = conv.channel === "voice call";
+  return ev.checklist.criteria.map((c) => {
+    const r = ev.final_results.find((x) => x.criterion_id === c.id) || {};
+    const orig = ev.results.find((x) => x.criterion_id === c.id);
+    const row = ev.totals.rows.find((x) => x.id === c.id);
+    const v = verdict(c, r);
+    const open = ev.appeals.find((a) => a.criterion_id === c.id && a.status === "open");
+    const isLow = (ev.low_confidence || []).includes(c.id);
+    return `
+    <div class="crit">
+      <div class="ic ${v.cls}">${v.ic}</div>
+      <div>
+        <div class="crit-top"><b title="${esc(c.description || "")}">${esc(c.text)}</b><span class="pill ${v.cls === "yes" ? "good" : v.cls === "no" ? "bad" : v.cls === "part" ? "mid" : ""}">${v.label}</span></div>
+        <div class="why">${r.na ? `<b>N/A.</b> ${esc(r.na_reason)}` : esc(r.explanation)}</div>
+        <div class="row">
+          ${(r.evidence_ids || []).length ? `<span class="chip" data-ev="${r.evidence_ids.join(",")}" ${isCall ? 'data-play=""' : ""}>↳ ${r.evidence_ids.map((i) => "#" + i).join(" ")}${isCall ? " ▶" : ""}</span>` : ""}
+          ${r.checked_span ? `<span class="chip" data-span="${esc(r.checked_span)}">🔎 проверено ${esc(r.checked_span)}</span>` : ""}
+          <span class="muted">${c.critical_on === "yes" ? "без баллов" : row?.applicable ? `вес ${c.weight} → ${fmt(row.effective_weight * 100, 1)}% · ${fmt(row.points, 2)} балл.` : `вес ${c.weight} · не учитывается`}</span>
+          ${confHtml(r.confidence)}${isLow ? '<span class="pill mid">проверить</span>' : ""}
+          ${r.overridden ? `<span class="pill info">изменено проверяющим, было: ${verdict(c, orig).label}</span>` : ""}
+          <span class="spacer"></span>
+          ${open ? '<span class="pill mid">апелляция на рассмотрении</span>' : `<a href="javascript:void 0" data-appeal="${c.id}">Оспорить</a>`}
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function traceHtml(ev) {
+  const f = ev.facts || {};
+  const e = f.events || {};
+  const at = (i) => (i === null || i === undefined || i < 0 ? "—" : `#${i}`);
+  return `<div class="card-b">
+    <p class="small ink2">Прозрачность: что код извлёк из диалога, что получила модель и что она ответила. Итог считает код по весам чек-листа — модель баллы не считает.</p>
+    <h4 style="margin:10px 0 6px">Факты, извлечённые кодом</h4>
+    <dl class="kv">
+      <dt>Язык клиента / оператора</dt><dd>${esc(f.client_language || "—")} / ${esc(f.operator_language || "—")}</dd>
+      <dt>Первая реплика оператора</dt><dd>${at(f.first_operator_idx)} · через ${f.first_operator_delay_sec ?? "—"} с · приветствие ${yn(f.first_reply_has_greeting)} · имя ${yn(f.first_reply_has_introduction)}</dd>
+      <dt>Паузы &gt; 3 мин</dt><dd>${(f.long_waits || []).map((w) => `#${w.from}→#${w.to} (${Math.round(w.seconds / 60)} мин, предупредил: ${yn(w.warned)})`).join("; ") || "нет"}</dd>
+      <dt>Системные события</dt><dd>эскалация ${at(e.escalation)} · личность подтверждена ${at(e.identity_verified)} · закрытие ${at(e.operator_closed)} · клиент ушёл ${at(e.client_left)} · обрыв ${at(e.connection_lost)}</dd>
+      <dt>Маркеры грубых ошибок</dt><dd>${(f.gross_hints || []).map((h) => `#${h.idx} ${esc(h.kind)}`).join("; ") || "нет"}</dd>
+      <dt>Прощание / доп. помощь</dt><dd>${at(f.farewell_idx)} / ${at(f.more_help_offer_idx)}</dd>
+    </dl>
+    <h4 style="margin:16px 0 6px">Запуск</h4>
+    <dl class="kv">
+      <dt>Модель</dt><dd>${esc(ev.model)}${ev.votes > 1 ? ` · голосование ${ev.votes} прогонов` : ""}</dd>
+      <dt>Версия промпта</dt><dd class="mono">${esc(ev.prompt_version || "—")}</dd>
+      <dt>Токены</dt><dd>${ev.usage ? `${fmt(ev.usage.prompt_tokens, 0)} вход · ${fmt(ev.usage.completion_tokens, 0)} выход` : "—"}</dd>
+      <dt>Стоимость / время</dt><dd>$${fmt(ev.cost_usd || 0, 5)} · ${fmt(ev.ms / 1000, 2)} с</dd>
+      <dt>Исправления ответа</dt><dd>${(ev.problems || []).length ? esc(ev.problems.join("; ")) : "не понадобились"}</dd>
+    </dl>
+    ${ev.trace ? `<details><summary>Системный промпт</summary><pre class="code">${esc(ev.trace.system)}</pre></details>
+    <details><summary>Данные для модели (чек-лист, факты, диалог)</summary><pre class="code">${esc(ev.trace.user)}</pre></details>
+    ${ev.trace.raw.map((r, i) => `<details ${i === 0 ? "open" : ""}><summary>Сырой ответ модели${ev.trace.raw.length > 1 ? ` · прогон ${i + 1}` : ""}</summary><pre class="code">${esc(pretty(r))}</pre></details>`).join("")}` : '<div class="banner mid" style="margin-top:12px">Оценка сделана в режиме MOCK — модель не подключена, поэтому промпта и сырого ответа нет.</div>'}
+  </div>`;
+}
+
+function historyHtml(ev, history) {
+  return `<div class="card-b stack">
+    ${ev.appeals.length ? ev.appeals.map((a) => {
+      const c = ev.checklist.criteria.find((x) => x.id === a.criterion_id);
+      return `<div class="banner ${a.status === "open" ? "mid" : a.status === "changed" ? "info" : ""}" style="flex-direction:column;background:var(--panel-2);color:var(--ink)">
+        <div><b>${esc(c?.text)}</b> · ${a.status === "open" ? "на рассмотрении" : a.status === "changed" ? "оценка изменена" : "оценка подтверждена"} · <span class="muted">${ago(a.created_at)}</span></div>
+        <div class="small">Апелляция: «${esc(a.comment)}»</div>
+        <div class="small">Было: <b>${verdict(c, a.original).label}</b>${a.decision ? ` → Решение: <b>${a.status === "changed" ? verdict(c, a.decision.result).label : "без изменений"}</b> — ${esc(a.decision.reason)}` : ""}</div></div>`;
+    }).join("") : '<span class="muted">Апелляций нет.</span>'}
+    <h4 style="margin:8px 0 0">Все оценки диалога</h4>
+    <div class="list-links">${history.slice().reverse().map((h) => `<a href="javascript:void 0"><span>${ago(h.created_at)} · ${esc(h.checklist_id)} v${h.checklist_version} · ${esc(h.model)}</span><b>${h.total === null ? "N/A" : fmt(h.total)}</b></a>`).join("")}</div>
+  </div>`;
+}
+
+function focusLines(root, ids, cls) {
+  root.querySelectorAll(".msg.hit,.msg.span").forEach((n) => n.classList.remove("hit", "span"));
   ids.forEach((i) => root.querySelector(`#m${i}`)?.classList.add(cls));
   root.querySelector(`#m${ids[0]}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-  if (callConv) toast(`Фрагмент записи: ${mmss(offsetSec(callConv.transcript, ids[0]))} — откройте запись и перейдите к этой минуте`);
 }
 
-function openAppealForm(box, criterionId, ev, root, cid) {
-  if (box.querySelector("form")) return;
+function openAppeal(box, criterionId, ev, root, cid) {
+  if (box.querySelector(".appeal-form")) return;
   const f = document.createElement("form");
-  f.className = "appeal";
-  f.innerHTML = `<textarea required placeholder="Почему оценка неверна? Укажите реплику."></textarea><div><button class="primary">Отправить апелляцию</button> <button type="button" class="cancel">Отмена</button></div>`;
-  box.append(f);
-  f.querySelector(".cancel").onclick = () => f.remove();
+  f.className = "appeal-form";
+  f.innerHTML = `<textarea class="input" rows="3" required placeholder="Почему оценка неверна? Укажите номер реплики, например #12."></textarea>
+    <div style="display:flex;gap:8px"><button class="btn primary">Отправить апелляцию</button><button type="button" class="btn ghost">Отмена</button></div>`;
+  box.querySelector(".row").after(f);
+  f.querySelector("textarea").focus();
+  f.querySelector(".ghost").onclick = () => f.remove();
   f.onsubmit = async (e) => {
     e.preventDefault();
-    try { await api("/api/appeals", { evaluation_id: ev.id, criterion_id: criterionId, comment: f.querySelector("textarea").value }); toast("Апелляция сохранена"); render(root, [cid]); }
+    try { await api("/api/appeals", { evaluation_id: ev.id, criterion_id: criterionId, comment: f.querySelector("textarea").value }); toast("Апелляция отправлена проверяющему"); refreshBadges(); render(root, [cid]); }
     catch (err) { toast(err.message, true); }
   };
 }
 
+const yn = (b) => (b === null || b === undefined ? "—" : b ? "да" : "нет");
 const range = (a, b) => Array.from({ length: Math.max(0, b - a) + 1 }, (_, k) => a + k);
+const pretty = (s) => { try { return JSON.stringify(JSON.parse(s), null, 2); } catch { return s; } };
